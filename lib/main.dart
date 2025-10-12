@@ -1,6 +1,7 @@
 import 'package:chita_app/screens/alert.dart';
 import 'package:chita_app/screens/contacts.dart';
 import 'package:chita_app/screens/home.dart';
+import 'package:chita_app/screens/login.dart';
 import 'package:chita_app/screens/profile.dart';
 import 'package:chita_app/screens/route.dart';
 import 'package:flutter/material.dart';
@@ -52,7 +53,7 @@ class RunnerApp extends StatelessWidget {
           bodyMedium: TextStyle(color: Colors.grey),
         ),
       ),
-      home: const MainScreen(),
+      home: const AuthScreen(),
     );
   }
 }
