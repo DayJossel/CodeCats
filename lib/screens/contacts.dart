@@ -49,7 +49,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             flexibleSpace: const FlexibleSpaceBar(
               titlePadding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
               title: Text(
-                'Contactos de Emergencia',
+                'Contactos de Confianza',
                 style: TextStyle(
                   fontWeight: FontWeight.bold, 
                   color: Colors.white
@@ -79,7 +79,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Agrega contactos de emergencia para recibir\nalertas cuando necesites ayuda',
+                    'Agrega contactos de confianza para recibir\nalertas cuando necesites ayuda',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey[400], fontSize: 14),
                   ),
@@ -114,7 +114,7 @@ class _AddContactSheet extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'Agregar Contacto de Emergencia',
+                'Agregar Contacto de Confianza',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
               ),
               IconButton(
@@ -128,8 +128,8 @@ class _AddContactSheet extends StatelessWidget {
           const SizedBox(height: 16),
           _buildTextField(label: 'Número de Teléfono *'),
           const SizedBox(height: 16),
-          _buildTextField(label: 'Email (opcional)'),
-          const SizedBox(height: 16),
+          // _buildTextField(label: 'Email (opcional)'),
+          // const SizedBox(height: 16),
           _buildTextField(label: 'Relación (opcional)'),
           const SizedBox(height: 24),
           SizedBox(
