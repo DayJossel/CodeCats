@@ -1,17 +1,17 @@
 import 'dart:async';
 
-import 'package:chita_app/screens/share_location.dart';
+import 'package:chita_app/screens/vista_ubicacion.dart';
 import 'package:flutter/material.dart';
 import '../main.dart'; // Importamos para usar los colores
 
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+class VistaAlerta extends StatefulWidget {
+  const VistaAlerta({super.key});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<VistaAlerta> createState() => _VistaAlertaState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _VistaAlertaState extends State<VistaAlerta> {
   bool _isCountingDown = false;
   int _countdownValue = 3;
   late Timer _timer;
@@ -67,7 +67,9 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: cardColor,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: const Text(
             '¿Enviar alerta de Emergencia?',
             textAlign: TextAlign.center,
@@ -140,16 +142,16 @@ class _HomeScreenState extends State<HomeScreen> {
               Text(
                 'Hola Corredor',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
               ),
               const SizedBox(height: 5),
               Text(
                 'Mantente seguro en tu próxima carrera',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: Colors.grey[400],
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(color: Colors.grey[400]),
               ),
               const Spacer(),
               Center(
@@ -163,10 +165,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         width: 180 + (_waveAnimation * 40),
                         height: 180 + (_waveAnimation * 40),
                         decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.3 - (_waveAnimation * 0.2)),
+                          color: Colors.red.withOpacity(
+                            0.3 - (_waveAnimation * 0.2),
+                          ),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: Colors.red.withOpacity(0.5 - (_waveAnimation * 0.3)),
+                            color: Colors.red.withOpacity(
+                              0.5 - (_waveAnimation * 0.3),
+                            ),
                             width: 2,
                           ),
                         ),
@@ -177,10 +183,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         width: 180 + (_waveAnimation * 20),
                         height: 180 + (_waveAnimation * 20),
                         decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.2 - (_waveAnimation * 0.15)),
+                          color: Colors.red.withOpacity(
+                            0.2 - (_waveAnimation * 0.15),
+                          ),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: Colors.red.withOpacity(0.4 - (_waveAnimation * 0.25)),
+                            color: Colors.red.withOpacity(
+                              0.4 - (_waveAnimation * 0.25),
+                            ),
                             width: 1.5,
                           ),
                         ),
@@ -233,9 +243,9 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 15),
               Center(
                 child: Text(
-                  _isCountingDown 
-                    ? 'Mantén presionado... $_countdownValue' 
-                    : 'Mantén presionado 3 segundos',
+                  _isCountingDown
+                      ? 'Mantén presionado... $_countdownValue'
+                      : 'Mantén presionado 3 segundos',
                   style: const TextStyle(color: Colors.grey),
                 ),
               ),
@@ -245,7 +255,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const ShareLocationScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => const VistaUbicacion(),
+                    ),
                   );
                 },
                 child: Container(
@@ -331,14 +343,19 @@ class _FeatureCard extends StatelessWidget {
           children: [
             Icon(icon, color: primaryColor, size: 30),
             const SizedBox(height: 15),
-            Text(title,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16)),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+            ),
             if (subtitle.isNotEmpty)
-              Text(subtitle,
-                  style: const TextStyle(color: Colors.grey, fontSize: 12)),
+              Text(
+                subtitle,
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
           ],
         ),
       ),

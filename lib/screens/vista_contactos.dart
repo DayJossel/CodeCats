@@ -2,15 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // Importado para el formateador de texto
 import '../main.dart'; // Para los colores
 
-class ContactsScreen extends StatefulWidget {
-  const ContactsScreen({super.key});
+class VistaContactos extends StatefulWidget {
+  const VistaContactos({super.key});
 
   @override
-  State<ContactsScreen> createState() => _ContactsScreenState();
+  State<VistaContactos> createState() => _VistaContactosState();
 }
 
-class _ContactsScreenState extends State<ContactsScreen> {
-
+class _VistaContactosState extends State<VistaContactos> {
   void _showAddContactModal() {
     showModalBottomSheet(
       context: context,
@@ -19,7 +18,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
       builder: (context) {
         return Padding(
           // Padding para que el teclado no cubra el modal
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
           child: const _AddContactSheet(),
         );
       },
@@ -52,8 +53,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
               title: Text(
                 'Contactos de Confianza',
                 style: TextStyle(
-                  fontWeight: FontWeight.bold, 
-                  color: Colors.white
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
                 ),
               ),
             ),
@@ -64,11 +65,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.phone_in_talk,
-                    color: Colors.grey[600],
-                    size: 50,
-                  ),
+                  Icon(Icons.phone_in_talk, color: Colors.grey[600], size: 50),
                   const SizedBox(height: 24),
                   const Text(
                     'No hay contactos agregados',
@@ -104,15 +101,25 @@ class _AddContactSheet extends StatefulWidget {
 
 class _AddContactSheetState extends State<_AddContactSheet> {
   // Lista de relaciones predefinidas
-  final List<String> _relations = ['Mamá', 'Papá', 'Tío', 'Tía', 'Hermano', 'Hermana', 'Amigo', 'Otro'];
-  
+  final List<String> _relations = [
+    'Mamá',
+    'Papá',
+    'Tío',
+    'Tía',
+    'Hermano',
+    'Hermana',
+    'Amigo',
+    'Otro',
+  ];
+
   // Variable para guardar la relación seleccionada
   String? _selectedRelation;
-  
+
   // Controladores para los campos de texto
   final _otherRelationController = TextEditingController();
-  final _relationDisplayController = TextEditingController(); // Para mostrar la relación seleccionada
-  
+  final _relationDisplayController =
+      TextEditingController(); // Para mostrar la relación seleccionada
+
   // Variable para controlar si se muestra el campo de texto de "Otro"
   bool _showOtherField = false;
 
@@ -123,16 +130,22 @@ class _AddContactSheetState extends State<_AddContactSheet> {
     _relationDisplayController.dispose();
     super.dispose();
   }
-  
+
   /// Muestra un modal con un selector de tipo "carrete" (ListWheelScrollView)
   void _showRelationPicker() {
     // Calcula el índice inicial para el carrete
-    int initialIndex = _selectedRelation != null ? _relations.indexOf(_selectedRelation!) : 0;
-    final scrollController = FixedExtentScrollController(initialItem: initialIndex);
-    
+    int initialIndex = _selectedRelation != null
+        ? _relations.indexOf(_selectedRelation!)
+        : 0;
+    final scrollController = FixedExtentScrollController(
+      initialItem: initialIndex,
+    );
+
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF2C2C2E), // Un color oscuro para el fondo del picker
+      backgroundColor: const Color(
+        0xFF2C2C2E,
+      ), // Un color oscuro para el fondo del picker
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.only(
           topLeft: Radius.circular(20),
@@ -151,8 +164,12 @@ class _AddContactSheetState extends State<_AddContactSheet> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
-                      "Seleccionar Relación", 
-                      style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 16)
+                      "Seleccionar Relación",
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
                     ),
                     TextButton(
                       onPressed: () {
@@ -164,7 +181,14 @@ class _AddContactSheetState extends State<_AddContactSheet> {
                         });
                         Navigator.pop(context);
                       },
-                      child: const Text('Hecho', style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold, fontSize: 16)),
+                      child: const Text(
+                        'Hecho',
+                        style: TextStyle(
+                          color: primaryColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -180,12 +204,19 @@ class _AddContactSheetState extends State<_AddContactSheet> {
                     selectedIndex = index;
                   },
                   childDelegate: ListWheelChildListDelegate(
-                    children: _relations.map((relation) => Center(
-                      child: Text(
-                        relation,
-                        style: const TextStyle(color: Colors.white, fontSize: 22),
-                      ),
-                    )).toList(),
+                    children: _relations
+                        .map(
+                          (relation) => Center(
+                            child: Text(
+                              relation,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
                   ),
                 ),
               ),
@@ -217,7 +248,11 @@ class _AddContactSheetState extends State<_AddContactSheet> {
               children: [
                 const Text(
                   'Agregar Contacto de Confianza',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.grey),
@@ -230,25 +265,32 @@ class _AddContactSheetState extends State<_AddContactSheet> {
             const SizedBox(height: 16),
             // --- INICIO DE LA MODIFICACIÓN ---
             _buildTextField(
-              label: 'Número de Teléfono *', 
+              label: 'Número de Teléfono *',
               keyboardType: TextInputType.phone,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly], // Solo permite números
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+              ], // Solo permite números
             ),
             // --- FIN DE LA MODIFICACIÓN ---
             const SizedBox(height: 16),
-            
+
             // Campo de Relación que abre el selector de carrete
             GestureDetector(
               onTap: _showRelationPicker,
-              child: AbsorbPointer( // Evita que el TextField obtenga el foco y abra el teclado
+              child: AbsorbPointer(
+                // Evita que el TextField obtenga el foco y abra el teclado
                 child: _buildTextField(
                   label: 'Relación (opcional)',
                   controller: _relationDisplayController,
-                  suffixIcon: const Icon(Icons.arrow_drop_down_rounded, color: Colors.grey, size: 28),
+                  suffixIcon: const Icon(
+                    Icons.arrow_drop_down_rounded,
+                    color: Colors.grey,
+                    size: 28,
+                  ),
                 ),
               ),
             ),
-            
+
             // Campo de texto condicional para "Otro"
             if (_showOtherField)
               Padding(
@@ -269,13 +311,16 @@ class _AddContactSheetState extends State<_AddContactSheet> {
                   foregroundColor: Colors.black,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                  )
+                  ),
                 ),
                 onPressed: () {
                   // Lógica para agregar contacto
                   Navigator.of(context).pop();
                 },
-                child: const Text('Agregar Contacto', style: TextStyle(fontWeight: FontWeight.bold)),
+                child: const Text(
+                  'Agregar Contacto',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ],
@@ -287,7 +332,7 @@ class _AddContactSheetState extends State<_AddContactSheet> {
   // Helper para construir los campos de texto
   // MODIFICADO: Acepta icono de sufijo y formateadores de entrada
   Widget _buildTextField({
-    required String label, 
+    required String label,
     TextEditingController? controller,
     TextInputType? keyboardType,
     Widget? suffixIcon,
@@ -316,4 +361,3 @@ class _AddContactSheetState extends State<_AddContactSheet> {
     );
   }
 }
-

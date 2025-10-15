@@ -10,14 +10,14 @@ class Contact {
   Contact({required this.name, required this.phone, required this.initials});
 }
 
-class ShareLocationScreen extends StatefulWidget {
-  const ShareLocationScreen({super.key});
+class VistaUbicacion extends StatefulWidget {
+  const VistaUbicacion({super.key});
 
   @override
-  State<ShareLocationScreen> createState() => _ShareLocationScreenState();
+  State<VistaUbicacion> createState() => _VistaUbicacionState();
 }
 
-class _ShareLocationScreenState extends State<ShareLocationScreen> {
+class _VistaUbicacionState extends State<VistaUbicacion> {
   // Lista de contactos de ejemplo
   final List<Contact> _contacts = [
     Contact(name: 'María González', phone: '+52 555 123 4567', initials: 'M'),
@@ -59,14 +59,13 @@ class _ShareLocationScreenState extends State<ShareLocationScreen> {
       builder: (context) => _SuccessDialog(
         selectedContacts: _selectedContacts.toList(),
         onDone: () {
-           // Cierra el dialogo de exito y la pantalla de compartir
-          Navigator.of(context).pop(); 
+          // Cierra el dialogo de exito y la pantalla de compartir
+          Navigator.of(context).pop();
           Navigator.of(context).pop();
         },
       ),
     );
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -82,7 +81,10 @@ class _ShareLocationScreenState extends State<ShareLocationScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 8.0,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -127,7 +129,7 @@ class _ShareLocationScreenState extends State<ShareLocationScreen> {
                       ? 'Continuar (${_selectedContacts.length})'
                       : 'Continuar',
                   style: TextStyle(
-                    color: canContinue ? Colors.black : Colors.grey[600]
+                    color: canContinue ? Colors.black : Colors.grey[600],
                   ),
                 ),
               ),
@@ -157,7 +159,13 @@ class _ContactTile extends StatelessWidget {
       onTap: onTap,
       leading: CircleAvatar(
         backgroundColor: primaryColor,
-        child: Text(contact.initials, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        child: Text(
+          contact.initials,
+          style: const TextStyle(
+            color: Colors.black,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
       title: Text(contact.name, style: const TextStyle(color: Colors.white)),
       subtitle: Text(contact.phone, style: const TextStyle(color: Colors.grey)),
@@ -182,7 +190,10 @@ class _ConfirmationDialog extends StatefulWidget {
   final List<Contact> selectedContacts;
   final VoidCallback onConfirm;
 
-  const _ConfirmationDialog({required this.selectedContacts, required this.onConfirm});
+  const _ConfirmationDialog({
+    required this.selectedContacts,
+    required this.onConfirm,
+  });
 
   @override
   State<_ConfirmationDialog> createState() => _ConfirmationDialogState();
@@ -191,7 +202,7 @@ class _ConfirmationDialog extends StatefulWidget {
 class _ConfirmationDialogState extends State<_ConfirmationDialog> {
   String _selectedFrequency = '10 min';
   String _selectedDuration = '1h';
-  
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -202,9 +213,14 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('¿Quieres compartir tu ubicación con los contactos seleccionados?'),
+          Text(
+            '¿Quieres compartir tu ubicación con los contactos seleccionados?',
+          ),
           const SizedBox(height: 20),
-          const Text('Frecuencia de actualización', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text(
+            'Frecuencia de actualización',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -214,30 +230,37 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
                 label: Text(freq),
                 selected: isSelected,
                 onSelected: (selected) {
-                  if(selected) setState(() => _selectedFrequency = freq);
+                  if (selected) setState(() => _selectedFrequency = freq);
                 },
                 backgroundColor: Colors.grey[800],
                 selectedColor: primaryColor,
-                labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white),
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.black : Colors.white,
+                ),
               );
             }).toList(),
           ),
           const SizedBox(height: 20),
-          const Text('Duración de la sesión', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text(
+            'Duración de la sesión',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: ['1h', '2h', '3h', '4h', '5h'].map((duration) {
-               final isSelected = _selectedDuration == duration;
+              final isSelected = _selectedDuration == duration;
               return ChoiceChip(
                 label: Text(duration),
                 selected: isSelected,
                 onSelected: (selected) {
-                   if(selected) setState(() => _selectedDuration = duration);
+                  if (selected) setState(() => _selectedDuration = duration);
                 },
                 backgroundColor: Colors.grey[800],
                 selectedColor: primaryColor,
-                labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white),
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.black : Colors.white,
+                ),
               );
             }).toList(),
           ),
@@ -265,7 +288,7 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
               ),
             ),
           ],
-        )
+        ),
       ],
     );
   }
@@ -273,11 +296,10 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
 
 // Diálogo de éxito
 class _SuccessDialog extends StatelessWidget {
-    final List<Contact> selectedContacts;
-    final VoidCallback onDone;
+  final List<Contact> selectedContacts;
+  final VoidCallback onDone;
 
-    const _SuccessDialog({required this.selectedContacts, required this.onDone});
-
+  const _SuccessDialog({required this.selectedContacts, required this.onDone});
 
   @override
   Widget build(BuildContext context) {
@@ -294,7 +316,10 @@ class _SuccessDialog extends StatelessWidget {
             child: Icon(Icons.check, color: Colors.white, size: 30),
           ),
           const SizedBox(height: 20),
-          const Text('¡Ubicación compartida!', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          const Text(
+            '¡Ubicación compartida!',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
           const Text('Tu ubicación se ha compartido exitosamente con:'),
           const SizedBox(height: 16),
@@ -304,7 +329,7 @@ class _SuccessDialog extends StatelessWidget {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: onDone,
-              child: const Text('Entendido')
+              child: const Text('Entendido'),
             ),
           ),
         ],

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-class AlertsScreen extends StatelessWidget {
-  const AlertsScreen({super.key});
+class VistaHistorial extends StatelessWidget {
+  const VistaHistorial({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -17,17 +17,18 @@ class AlertsScreen extends StatelessWidget {
               Text(
                 'Historial de Alertas',
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
               ),
-              
+
               // --- MENSAJE CENTRAL ---
               // Expanded asegura que el contenido se centre verticalmente
               Expanded(
                 child: Center(
                   child: Column(
-                    mainAxisSize: MainAxisSize.min, // Para que la columna no ocupe todo el espacio
+                    mainAxisSize: MainAxisSize
+                        .min, // Para que la columna no ocupe todo el espacio
                     children: [
                       Icon(
                         Icons.info_outline,
