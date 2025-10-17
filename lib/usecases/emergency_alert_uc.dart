@@ -32,11 +32,33 @@ class EmergencyAlertUC {
       lat = pos.latitude; lng = pos.longitude;
     } catch (_) { lat = null; lng = null; }
 
+    // Datos del corredor para el template SRS
     final nombre = await SessionRepository.nombre() ?? 'Corredor';
-    final mapUrl = (lat != null && lng != null) ? ' https://maps.google.com/?q=$lat,$lng' : '';
+    final cid = await SessionRepository.corredorId() ?? 0;
+
+    // (Opcional) Si quieres el formato CHTA-023 como en el SRS:
+    String corredorDisplayId(int id, {String prefix = 'CHTA-', int pad = 3}) {
+      return '$prefix${id.toString().padLeft(pad, '0')}';
+    }
+    final idVisible = corredorDisplayId(cid); // p.ej. CHTA-023
+
+    // Línea de ubicación para el SRS
+    final ubicacionLinea = (lat != null && lng != null)
+        ? 'Última ubicación: https://maps.google.com/?q=$lat,$lng'
+        : 'Última ubicación: no disponible';
+
+    // MENSAJE EXACTO DEL SRS (si no te pasan uno personalizado)
+    final mensajePorDefecto = '''
+    🚨 ALERTA CHITA 🚨
+    Soy $nombre (ID: $idVisible).
+    Necesito ayuda urgente.
+    $ubicacionLinea
+    '''.trim();
+
     final mensaje = (mensajeLibre?.trim().isNotEmpty ?? false)
         ? mensajeLibre!.trim()
-        : 'ALERTA de $nombre.$mapUrl';
+        : mensajePorDefecto;
+
 
     final isOnline = await _isOnline();
     int? historialId;

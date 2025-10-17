@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart'; // Colores y MainScreen
+import '../core/session_repository.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -61,14 +62,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    // borra todas las claves que usa la sesión: corredor_id, correo, nombre, contrasenia
+    await SessionRepository.clear();
 
+    if (!mounted) return;
+
+    // Limpia el stack y manda al login
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const AuthScreen()),
-      (Route<dynamic> route) => false,
+      (_) => false,
     );
   }
+
 
   Future<void> _deleteAccount() async {
     try {

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:telephony/telephony.dart';
 import '../main.dart';
 import 'vista_ubicacion.dart';
 import '../usecases/emergency_alert_uc.dart';
@@ -13,12 +12,13 @@ class VistaAlerta extends StatefulWidget {
 }
 
 class _VistaAlertaState extends State<VistaAlerta> {
+  bool _sending = false;
+  String? _statusMsg;
   bool _isCountingDown = false;
   int _countdownValue = 3;
   late Timer _timer;
   double _waveAnimation = 0.0;
   late Timer _waveTimer;
-  final Telephony telephony = Telephony.instance;
 
   void _startCountdown() {
     setState(() {
@@ -47,6 +47,48 @@ class _VistaAlertaState extends State<VistaAlerta> {
     });
   }
 
+  Future<void> _sendEmergency() async {
+    if (_sending) return;
+    setState(() { _sending = true; _statusMsg = null; });
+
+    try {
+      final res = await EmergencyAlertUC.trigger(); // usa TODOS los contactos
+      final okTotal = res.fallidos.isEmpty;
+      final base = okTotal
+          ? 'Alerta enviada a todos los contactos.'
+          : 'Alerta enviada con fallos a ${res.fallidos.length} contacto(s).';
+      final hid = res.historialId != null ? ' (Historial #${res.historialId})' : '';
+      if (!mounted) return;
+      setState(() => _statusMsg = base + hid);
+
+      // Snack verde si todo OK, rojo si hubo fallos
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(okTotal
+              ? '🚨 Alerta enviada con éxito'
+              : '⚠️ Alerta enviada con algunos fallos'),
+          backgroundColor: okTotal ? Colors.green : Colors.orange,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _statusMsg = '❌ No se pudo enviar la alerta: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('❌ Falló el envío de la alerta. Intenta de nuevo.'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+
   void _cancelCountdown() {
     if (_timer.isActive) _timer.cancel();
     if (_waveTimer.isActive) _waveTimer.cancel();
@@ -55,41 +97,6 @@ class _VistaAlertaState extends State<VistaAlerta> {
       _countdownValue = 3;
       _waveAnimation = 0.0;
     });
-  }
-
-  // ✅ Envío real del SMS
-  Future<bool> _enviarAlerta() async {
-    try {
-      // Datos del corredor (luego puedes traerlos desde tu backend o base local)
-      const String nombre = "Jorge Ruvalcaba";
-      const String id = "CHTA-023";
-      const double lat = 20.6751;
-      const double lng = -103.3473;
-
-      final String mensaje =
-          '''
-🚨 ALERTA CHITA 🚨
-Soy $nombre (ID: $id).
-Necesito ayuda urgente.
-Última ubicación: https://maps.google.com/?q=$lat,$lng
-''';
-
-      // Contactos de confianza (números reales con prefijo internacional)
-      final List<String> contactos = ["+5213312345678", "+5213333345678"];
-
-      bool permisos = await telephony.requestSmsPermissions ?? false;
-
-      if (!permisos) return false;
-
-      for (String numero in contactos) {
-        await telephony.sendSms(to: numero, message: mensaje);
-      }
-
-      return true;
-    } catch (e) {
-      print("Error al enviar SMS: $e");
-      return false;
-    }
   }
 
   // ✅ Diálogo de confirmación con resultado real
@@ -120,16 +127,6 @@ Necesito ayuda urgente.
               children: [
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey[800],
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
-                  child: const Text('Cancelar'),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-                const SizedBox(height: 10),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
                     backgroundColor: accentColor,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
@@ -137,36 +134,7 @@ Necesito ayuda urgente.
                   child: const Text('Enviar Alerta'),
                   onPressed: () async {
                     Navigator.of(context).pop(); // Cierra el diálogo
-
-                    bool success = await _enviarAlerta();
-
-                    if (!mounted) return;
-
-                    if (success) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            '🚨 Alerta enviada con éxito',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                          backgroundColor: Colors.green,
-                          behavior: SnackBarBehavior.floating,
-                          duration: Duration(seconds: 3),
-                        ),
-                      );
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            '❌ Falló el envío de la alerta. Intenta de nuevo.',
-                            style: TextStyle(color: Colors.white),
-                          ),
-                          backgroundColor: Colors.redAccent,
-                          behavior: SnackBarBehavior.floating,
-                          duration: Duration(seconds: 3),
-                        ),
-                      );
-                    }
+                    await _sendEmergency();      // <-- aquí disparamos la alerta real
                   },
                 ),
               ],
