@@ -28,8 +28,8 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  another_telephony: ^0.4.1
   http: ^1.2.2
-  telephony: ^0.2.0
   flutter:
     sdk: flutter
 
@@ -98,6 +98,3 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
-dependency_overrides:
-  telephony:
-    path: plugins/telephony

@@ -1,3 +1,5 @@
+// lib/usecases/emergency_alert_uc.dart
+import 'package:flutter/foundation.dart';                 // <- para debugPrint
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../core/session_repository.dart';
 import '../data/api_service.dart';
@@ -7,29 +9,42 @@ import '../device/sms_service.dart';
 class EmergencyAlertResult {
   final int? historialId;
   final List<int> fallidos;
-  EmergencyAlertResult({required this.historialId, required this.fallidos});
+  const EmergencyAlertResult({
+    required this.historialId,
+    required this.fallidos,
+  });
 }
 
 class EmergencyAlertUC {
+  /// Dispara la alerta:
+  /// 1) Obtiene contactos
+  /// 2) Pide permisos SMS/Teléfono
+  /// 3) Toma ubicación (best-effort)
+  /// 4) Arma mensaje (formato SRS)
+  /// 5) (si hay internet) POST /alertas/activar
+  /// 6) Envía SMS a cada contacto (flex: 10 dígitos, 52..., +52..., fallback a app de SMS)
+  /// 7) (si hay internet) POST /alertas/enviar con los que sí salieron
   static Future<EmergencyAlertResult> trigger({
     String? mensajeLibre,
     List<int>? soloContactoIds,
   }) async {
-    // 1) Traer contactos del backend (del corredor en sesión)
-    final contactos = await ApiService.getContactos(); // [{contacto_id,telefono,...}]
+    // 1) Contactos
+    final contactos = await ApiService.getContactos(); // [{contacto_id, telefono, ...}]
     if (contactos.isEmpty) {
       throw Exception('No tienes contactos de confianza. Agrega al menos uno.');
     }
 
     final selected = (soloContactoIds == null || soloContactoIds.isEmpty)
         ? contactos
-        : contactos.where((c) => soloContactoIds.contains(c['contacto_id'] as int)).toList();
+        : contactos
+            .where((c) => soloContactoIds.contains((c['contacto_id'] as num).toInt()))
+            .toList();
 
     if (selected.isEmpty) {
       throw Exception('La selección de contactos quedó vacía.');
     }
 
-    // 2) Permisos para SMS + TELÉFONO
+    // 2) Permisos SMS/Teléfono (vía plugin + permission_handler)
     await SmsService.ensureSmsAndPhonePermissions();
 
     // 3) Ubicación (best-effort)
@@ -43,36 +58,32 @@ class EmergencyAlertUC {
       lng = null;
     }
 
-    // 4) Mensaje EXACTO del SRS (con fallback si no hay GPS)
+    // 4) Mensaje EXACTO del SRS
     final nombre = await SessionRepository.nombre() ?? 'Corredor';
     final cid = await SessionRepository.corredorId() ?? 0;
 
-    String _corredorDisplayId(int id, {String prefix = 'CHTA-', int pad = 3}) {
-      return '$prefix${id.toString().padLeft(pad, '0')}';
-    }
+    String _visibleId(int id, {String prefix = 'CHTA-', int pad = 3}) =>
+        '$prefix${id.toString().padLeft(pad, '0')}';
 
-    final idVisible = _corredorDisplayId(cid);
+    final idVisible = _visibleId(cid);
     final ubicacionLinea = (lat != null && lng != null)
         ? 'Última ubicación: https://maps.google.com/?q=$lat,$lng'
         : 'Última ubicación: no disponible';
 
     final mensajePorDefecto = '''
 🚨 ALERTA CHITA 🚨
-Soy $nombre
+Soy $nombre (ID: $idVisible).
 Necesito ayuda urgente.
-Ultima ubicación registrada:
 $ubicacionLinea
-Activado desde la app CHITA
 '''.trim();
 
-    final mensaje = (mensajeLibre?.trim().isNotEmpty ?? false)
-        ? mensajeLibre!.trim()
-        : mensajePorDefecto;
+    final mensaje =
+        (mensajeLibre?.trim().isNotEmpty ?? false) ? mensajeLibre!.trim() : mensajePorDefecto;
 
-    // 5) Si hay internet, registramos la sesión de alerta (Historial)
+    // 5) Registrar sesión de alerta si hay internet
     final isOnline = await _isOnline();
     int? historialId;
-    final ids = selected.map<int>((c) => c['contacto_id'] as int).toList();
+    final ids = selected.map<int>((c) => (c['contacto_id'] as num).toInt()).toList();
 
     if (isOnline) {
       try {
@@ -82,44 +93,48 @@ Activado desde la app CHITA
           lng: (lng ?? 0),
           contactoIds: ids,
         );
-        historialId = det['historial_id'] as int?;
-      } catch (_) {
-        // no bloqueamos si el backend falló; seguimos con SMS
+        historialId = (det['historial_id'] as num?)?.toInt();
+        debugPrint('[ALERTA] Historial creado: $historialId');
+      } catch (e) {
+        debugPrint('[ALERTA] activarAlerta falló: $e (continuo con SMS)');
       }
+    } else {
+      debugPrint('[ALERTA] Sin internet - envío solo SMS.');
     }
 
-    // 6) NORMALIZACIÓN MX a E.164 (AQUÍ ESTÁ) + ENVÍO DE SMS (AQUÍ ESTÁ EL BUCLE)
-    String _normalizeMx(String tel) {
-      // Quita espacios, guiones y paréntesis
-      final t = tel.replaceAll(RegExp(r'[^\d+]'), '');
-      if (t.startsWith('+')) return t;                 // ya en internacional
-      if (t.length == 10) return '+52$t';              // 10 dígitos locales -> +52
-      if (t.length == 12 && t.startsWith('52')) return '+$t'; // 52xxxxxxxxxxxx -> +52...
-      return t; // lo que venga si no coincide con los casos comunes
-    }
-
+    // 6) ENVÍO DE SMS (flexible MX) + logs
     final fallidos = <int>[];
 
-    // ⬇⬇⬇⬇⬇ ESTE ES EL BUCLE QUE ENVÍA LOS SMS ⬇⬇⬇⬇⬇
     for (final c in selected) {
-      final raw = (c['telefono'] as String).trim();
-      final tel = _normalizeMx(raw);
+      final raw = (c['telefono'] as String?)?.trim() ?? '';
+      final id = (c['contacto_id'] as num).toInt();
+
+      if (raw.isEmpty) {
+        fallidos.add(id);
+        continue;
+      }
+
       try {
-        await SmsService.send(to: tel, message: mensaje);
-      } catch (_) {
-        fallidos.add(c['contacto_id'] as int);
+        debugPrint('[ALERTA] Enviando SMS a contacto_id=$id tel="$raw"');
+        await SmsService.sendFlexibleMx(rawPhone: raw, message: mensaje);
+      } catch (e) {
+        debugPrint('[ALERTA] Error enviando a contacto_id=$id: $e');
+        fallidos.add(id);
       }
     }
-    // ⬆⬆⬆⬆⬆ FIN DEL BUCLE DE ENVÍO DE SMS ⬆⬆⬆⬆⬆
 
-    // 7) Si hay internet y tenemos historial, registramos envíos OK
+    // 7) Registrar envíos OK si hay internet e historial
     if (isOnline && historialId != null) {
       final enviadosOk = ids.where((id) => !fallidos.contains(id)).toList();
       if (enviadosOk.isNotEmpty) {
         try {
-          await ApiService.registrarEnvios(historialId: historialId!, contactoIds: enviadosOk);
-        } catch (_) {
-          // no bloqueamos UX si el backend falla aquí
+          await ApiService.registrarEnvios(
+            historialId: historialId!,
+            contactoIds: enviadosOk,
+          );
+          debugPrint('[ALERTA] Registrados envíos OK: $enviadosOk');
+        } catch (e) {
+          debugPrint('[ALERTA] registrarEnvios falló: $e');
         }
       }
     }
@@ -128,7 +143,11 @@ Activado desde la app CHITA
   }
 
   static Future<bool> _isOnline() async {
-    final c = await Connectivity().checkConnectivity();
-    return c != ConnectivityResult.none;
+    try {
+      final c = await Connectivity().checkConnectivity();
+      return c != ConnectivityResult.none;
+    } catch (_) {
+      return false;
+    }
   }
 }
