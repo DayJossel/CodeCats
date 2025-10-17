@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import '../core/session_repository.dart';
 import '../main.dart'; // Para colores y MainScreen
 
 class AuthScreen extends StatefulWidget {
@@ -75,11 +75,12 @@ class _LoginViewState extends State<_LoginView> {
         final data = jsonDecode(response.body);
 
         if (data['ok'] == true) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setInt('corredor_id', data['corredor_id']);
-          await prefs.setString('nombre', data['nombre']);
-          await prefs.setString('correo', correo);
-          await prefs.setString('contrasenia', contrasenia);
+          await SessionRepository.saveLogin(
+            corredorId: (data['corredor_id'] as num).toInt(),
+            contrasenia: contrasenia,
+            nombre: (data['nombre'] as String?) ?? '',
+            correo: correo,
+          );
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Bienvenido ${data['nombre']}')),

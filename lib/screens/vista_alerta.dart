@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:telephony/telephony.dart';
 import '../main.dart';
 import 'vista_ubicacion.dart';
+import '../usecases/emergency_alert_uc.dart';
 
 class VistaAlerta extends StatefulWidget {
   const VistaAlerta({super.key});
