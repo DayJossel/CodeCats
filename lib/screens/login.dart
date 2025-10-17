@@ -1,5 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../main.dart'; // Para los colores
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../main.dart'; // Para colores y MainScreen
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -32,10 +35,79 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 }
 
-// --- VISTA DE INICIO DE SESIÓN ---
-class _LoginView extends StatelessWidget {
+// ------------------------------------------------------------
+// VISTA DE INICIO DE SESIÓN
+// ------------------------------------------------------------
+class _LoginView extends StatefulWidget {
   final VoidCallback onToggle;
   const _LoginView({required this.onToggle});
+
+  @override
+  State<_LoginView> createState() => _LoginViewState();
+}
+
+class _LoginViewState extends State<_LoginView> {
+  final correoController = TextEditingController();
+  final contraseniaController = TextEditingController();
+  bool _isLoading = false;
+
+  Future<void> _login() async {
+    final correo = correoController.text.trim();
+    final contrasenia = contraseniaController.text.trim();
+
+    if (correo.isEmpty || contrasenia.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Por favor llena todos los campos')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse('http://157.137.187.110:8000/corredores/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'correo': correo, 'contrasenia': contrasenia}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+
+        if (data['ok'] == true) {
+          // Guardar datos del usuario localmente
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setInt('corredor_id', data['corredor_id']);
+          await prefs.setString('nombre', data['nombre']);
+          await prefs.setString('correo', correo);
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Bienvenido ${data['nombre']}')),
+          );
+
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const MainScreen()),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Credenciales incorrectas')),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error ${response.statusCode}: ${response.body}'),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,20 +124,24 @@ class _LoginView extends StatelessWidget {
           style: TextStyle(color: Colors.grey, fontSize: 16),
         ),
         SizedBox(height: MediaQuery.of(context).size.height * 0.1),
-        _buildTextField(label: 'Correo electrónico'),
+        _buildTextField(
+          label: 'Correo electrónico',
+          controller: correoController,
+        ),
         const SizedBox(height: 16),
-        _buildTextField(label: 'Contraseña', obscureText: true),
+        _buildTextField(
+          label: 'Contraseña',
+          controller: contraseniaController,
+          obscureText: true,
+        ),
         const SizedBox(height: 40),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: () {
-              // Lógica de inicio de sesión
-               Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (_) => const MainScreen()),
-              );
-            },
-            child: const Text('Iniciar Sesión'),
+            onPressed: _isLoading ? null : _login,
+            child: _isLoading
+                ? const CircularProgressIndicator(color: Colors.white)
+                : const Text('Iniciar Sesión'),
           ),
         ),
         const SizedBox(height: 24),
@@ -74,10 +150,13 @@ class _LoginView extends StatelessWidget {
           children: [
             const Text('¿No tienes cuenta? '),
             GestureDetector(
-              onTap: onToggle,
+              onTap: widget.onToggle,
               child: const Text(
                 'Regístrate',
-                style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ],
@@ -87,16 +166,81 @@ class _LoginView extends StatelessWidget {
   }
 }
 
-// --- VISTA DE CREAR CUENTA ---
-class _SignUpView extends StatelessWidget {
+// ------------------------------------------------------------
+// VISTA DE CREAR CUENTA
+// ------------------------------------------------------------
+class _SignUpView extends StatefulWidget {
   final VoidCallback onToggle;
   const _SignUpView({required this.onToggle});
 
   @override
+  State<_SignUpView> createState() => _SignUpViewState();
+}
+
+class _SignUpViewState extends State<_SignUpView> {
+  final nombreController = TextEditingController();
+  final correoController = TextEditingController();
+  final contraseniaController = TextEditingController();
+  final telefonoController = TextEditingController();
+  bool _isLoading = false;
+
+  Future<void> _register() async {
+    final nombre = nombreController.text.trim();
+    final correo = correoController.text.trim();
+    final contrasenia = contraseniaController.text.trim();
+    final telefono = telefonoController.text.trim();
+
+    if (nombre.isEmpty ||
+        correo.isEmpty ||
+        contrasenia.isEmpty ||
+        telefono.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Por favor llena todos los campos')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse('http://157.137.187.110:8000/corredores'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'nombre': nombre,
+          'correo': correo,
+          'contrasenia': contrasenia,
+          'telefono': telefono,
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        final data = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Cuenta creada: ${data['nombre']}')),
+        );
+        widget.onToggle(); // Regresar a pantalla de login
+      } else {
+        final error = jsonDecode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Error: ${error['detail'] ?? 'No se pudo registrar'}',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // Simula un mensaje de error para mostrar el diseño
-    String? errorMessage; // Cambia a un texto para ver el error
-    
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -110,18 +254,6 @@ class _SignUpView extends StatelessWidget {
           style: TextStyle(color: Colors.grey, fontSize: 16),
         ),
         const SizedBox(height: 30),
-        if(errorMessage != null) ...[
-            Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12)
-                ),
-                child: Text(errorMessage, style: const TextStyle(color: Colors.red)),
-            ),
-            const SizedBox(height: 20),
-        ],
         Center(
           child: Stack(
             alignment: Alignment.bottomRight,
@@ -133,29 +265,42 @@ class _SignUpView extends StatelessWidget {
               ),
               CircleAvatar(
                 radius: 15,
-                backgroundColor: Colors.grey[800],
-                child: const Icon(Icons.camera_alt, size: 15, color: primaryColor),
-              )
+                backgroundColor: Colors.grey,
+                child: const Icon(
+                  Icons.camera_alt,
+                  size: 15,
+                  color: primaryColor,
+                ),
+              ),
             ],
           ),
         ),
-        const Center(child: Text('Agregar foto (opcional)', style: TextStyle(color: Colors.grey))),
         const SizedBox(height: 30),
-        _buildTextField(label: 'Nombre completo'),
+        _buildTextField(label: 'Nombre completo', controller: nombreController),
         const SizedBox(height: 16),
-        _buildTextField(label: 'Correo electrónico'),
+        _buildTextField(
+          label: 'Correo electrónico',
+          controller: correoController,
+        ),
         const SizedBox(height: 16),
-        _buildTextField(label: 'Contraseña', obscureText: true),
+        _buildTextField(
+          label: 'Contraseña',
+          controller: contraseniaController,
+          obscureText: true,
+        ),
         const SizedBox(height: 16),
-        _buildTextField(label: 'Número de teléfono'),
+        _buildTextField(
+          label: 'Número de teléfono',
+          controller: telefonoController,
+        ),
         const SizedBox(height: 30),
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: () {
-              // Lógica para crear cuenta
-            },
-            child: const Text('Crear Cuenta'),
+            onPressed: _isLoading ? null : _register,
+            child: _isLoading
+                ? const CircularProgressIndicator(color: Colors.white)
+                : const Text('Crear Cuenta'),
           ),
         ),
         const SizedBox(height: 24),
@@ -164,10 +309,13 @@ class _SignUpView extends StatelessWidget {
           children: [
             const Text('¿Ya tienes cuenta? '),
             GestureDetector(
-              onTap: onToggle,
+              onTap: widget.onToggle,
               child: const Text(
                 'Inicia Sesión',
-                style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  color: primaryColor,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ],
@@ -177,9 +325,16 @@ class _SignUpView extends StatelessWidget {
   }
 }
 
-// Helper reutilizable para los campos de texto
-Widget _buildTextField({required String label, bool obscureText = false}) {
+// ------------------------------------------------------------
+// HELPER REUTILIZABLE
+// ------------------------------------------------------------
+Widget _buildTextField({
+  required String label,
+  required TextEditingController controller,
+  bool obscureText = false,
+}) {
   return TextField(
+    controller: controller,
     obscureText: obscureText,
     style: const TextStyle(color: Colors.white),
     decoration: InputDecoration(
