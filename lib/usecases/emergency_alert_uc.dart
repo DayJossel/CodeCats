@@ -4,6 +4,7 @@ import '../core/session_repository.dart';
 import '../data/api_service.dart';
 import '../device/location_service.dart';
 import '../device/sms_service.dart';
+import '../core/app_events.dart';
 
 class EmergencyAlertResult {
   final int? historialId;
@@ -90,6 +91,9 @@ Activado desde la app CHITA.
         );
         historialId = (res['historial_id'] as num?)?.toInt();
         debugPrint('[ALERTA] Historial creado: $historialId');
+        if (historialId != null) {
+          AppEvents.bumpAlertHistory();
+        }
       } catch (e) {
         debugPrint('[ALERTA] activarAlerta falló: $e (continuo con SMS)');
       }

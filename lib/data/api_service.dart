@@ -113,4 +113,19 @@ class ApiService {
           statusCode: resp.statusCode);
     }
   }
+
+  // GET /alertas/historial  ->  List<Map<String,dynamic>>
+  static Future<List<Map<String, dynamic>>> listarHistorial() async {
+    final headers = await _authHeaders();
+    final url = Uri.parse('$baseUrl/alertas/historial');
+
+    final resp = await http.get(url, headers: headers).timeout(const Duration(seconds: 15));
+    if (resp.statusCode == 200) {
+      final data = jsonDecode(resp.body);
+      if (data is List) return data.cast<Map<String, dynamic>>();
+      throw ApiHttpException('Formato inesperado de /alertas/historial');
+    }
+    _throwHttp(resp);
+  }
+
 }
