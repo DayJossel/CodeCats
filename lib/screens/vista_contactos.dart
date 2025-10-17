@@ -88,7 +88,15 @@ class _VistaContactosState extends State<VistaContactos> {
 
   void _showAddContactModal({Map<String, dynamic>? contacto}) {
     if (!_isUserLoaded || corredorId == null || contrasenia == null) {
-      _showSnack('Espera a que se cargue tu sesión antes de agregar contactos.');
+      _showSnack(
+        'Espera a que se cargue tu sesión antes de agregar contactos.',
+      );
+      return;
+    }
+
+    // 🔒 Límite de 5 contactos
+    if (contacto == null && _contactos.length >= 5) {
+      _showSnack('Solo puedes registrar hasta 5 contactos de confianza.');
       return;
     }
 
@@ -106,6 +114,7 @@ class _VistaContactosState extends State<VistaContactos> {
             corredorId: corredorId!,
             contrasenia: contrasenia!,
             onSave: _fetchContactos,
+            totalContactos: _contactos.length,
           ),
         );
       },
@@ -117,8 +126,9 @@ class _VistaContactosState extends State<VistaContactos> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Eliminar contacto"),
-        content:
-            const Text("¿Seguro que deseas eliminar este contacto de confianza?"),
+        content: const Text(
+          "¿Seguro que deseas eliminar este contacto de confianza?",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -140,9 +150,7 @@ class _VistaContactosState extends State<VistaContactos> {
   Widget build(BuildContext context) {
     if (!_isUserLoaded) {
       return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(color: primaryColor),
-        ),
+        body: Center(child: CircularProgressIndicator(color: primaryColor)),
       );
     }
 
@@ -150,54 +158,60 @@ class _VistaContactosState extends State<VistaContactos> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: primaryColor))
           : _contactos.isEmpty
-              ? _buildEmptyState()
-              : RefreshIndicator(
-                  onRefresh: _fetchContactos,
-                  color: primaryColor,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _contactos.length,
-                    itemBuilder: (context, index) {
-                      final c = _contactos[index];
-                      return Card(
-                        color: cardColor,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            backgroundColor: primaryColor,
-                            child: Icon(Icons.person, color: Colors.black),
+          ? _buildEmptyState()
+          : RefreshIndicator(
+              onRefresh: _fetchContactos,
+              color: primaryColor,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _contactos.length,
+                itemBuilder: (context, index) {
+                  final c = _contactos[index];
+                  return Card(
+                    color: cardColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ListTile(
+                      leading: const CircleAvatar(
+                        backgroundColor: primaryColor,
+                        child: Icon(Icons.person, color: Colors.black),
+                      ),
+                      title: Text(c['nombre']),
+                      subtitle: Text("${c['relacion']} • ${c['telefono']}"),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (value) {
+                          if (value == 'edit') {
+                            _showAddContactModal(contacto: c);
+                          } else if (value == 'delete') {
+                            _confirmDelete(c['contacto_id']);
+                          }
+                        },
+                        itemBuilder: (ctx) => [
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: Text('Editar'),
                           ),
-                          title: Text(c['nombre']),
-                          subtitle: Text("${c['relacion']} • ${c['telefono']}"),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (value) {
-                              if (value == 'edit') {
-                                _showAddContactModal(contacto: c);
-                              } else if (value == 'delete') {
-                                _confirmDelete(c['contacto_id']);
-                              }
-                            },
-                            itemBuilder: (ctx) => [
-                              const PopupMenuItem(
-                                value: 'edit',
-                                child: Text('Editar'),
-                              ),
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Eliminar'),
-                              ),
-                            ],
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Eliminar'),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: primaryColor,
-        onPressed: _showAddContactModal,
+        onPressed: () {
+          if (_contactos.length >= 5) {
+            _showSnack('Solo puedes registrar hasta 5 contactos de confianza.');
+          } else {
+            _showAddContactModal();
+          }
+        },
         child: const Icon(Icons.add, color: Colors.black),
       ),
     );
@@ -234,12 +248,14 @@ class _AddContactSheet extends StatefulWidget {
   final int corredorId;
   final String contrasenia;
   final VoidCallback onSave;
+  final int totalContactos;
 
   const _AddContactSheet({
     this.contacto,
     required this.corredorId,
     required this.contrasenia,
     required this.onSave,
+    required this.totalContactos,
   });
 
   @override
@@ -263,13 +279,23 @@ class _AddContactSheetState extends State<_AddContactSheet> {
   }
 
   Future<void> _guardarContacto() async {
+    if (widget.contacto == null && widget.totalContactos >= 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Solo puedes tener hasta 5 contactos.')),
+      );
+      Navigator.of(context).pop();
+      return;
+    }
+
     final nombre = nombreController.text.trim();
     final telefono = telefonoController.text.trim();
     final relacion = relacionController.text.trim();
 
     if (nombre.isEmpty || telefono.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor llena los campos obligatorios')),
+        const SnackBar(
+          content: Text('Por favor llena los campos obligatorios'),
+        ),
       );
       return;
     }
@@ -285,26 +311,31 @@ class _AddContactSheetState extends State<_AddContactSheet> {
     final url = widget.contacto == null
         ? Uri.parse('http://157.137.187.110:8000/contactos')
         : Uri.parse(
-            'http://157.137.187.110:8000/contactos/${widget.contacto!['contacto_id']}');
+            'http://157.137.187.110:8000/contactos/${widget.contacto!['contacto_id']}',
+          );
 
     final method = widget.contacto == null ? 'POST' : 'PUT';
 
     try {
       final response = await (method == 'POST'
-          ? http.post(url,
+          ? http.post(
+              url,
               headers: {
                 'Content-Type': 'application/json',
                 'X-Corredor-Id': '${widget.corredorId}',
                 'X-Contrasenia': widget.contrasenia,
               },
-              body: jsonEncode(body))
-          : http.put(url,
+              body: jsonEncode(body),
+            )
+          : http.put(
+              url,
               headers: {
                 'Content-Type': 'application/json',
                 'X-Corredor-Id': '${widget.corredorId}',
                 'X-Contrasenia': widget.contrasenia,
               },
-              body: jsonEncode(body)));
+              body: jsonEncode(body),
+            ));
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         Navigator.of(context).pop();
@@ -312,12 +343,14 @@ class _AddContactSheetState extends State<_AddContactSheet> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Error (${response.statusCode}): ${response.body}')),
+            content: Text('Error (${response.statusCode}): ${response.body}'),
+          ),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       setState(() => _isSaving = false);
     }
@@ -360,9 +393,12 @@ class _AddContactSheetState extends State<_AddContactSheet> {
           const SizedBox(height: 20),
           _buildTextField('Nombre *', nombreController),
           const SizedBox(height: 16),
-          _buildTextField('Teléfono *', telefonoController,
-              keyboardType: TextInputType.phone,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly]),
+          _buildTextField(
+            'Teléfono *',
+            telefonoController,
+            keyboardType: TextInputType.phone,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          ),
           const SizedBox(height: 16),
           _buildTextField('Relación (opcional)', relacionController),
           const SizedBox(height: 24),
@@ -380,7 +416,10 @@ class _AddContactSheetState extends State<_AddContactSheet> {
               ),
               child: _isSaving
                   ? const CircularProgressIndicator(color: Colors.black)
-                  : const Text('Guardar', style: TextStyle(fontWeight: FontWeight.bold)),
+                  : const Text(
+                      'Guardar',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
             ),
           ),
         ],
