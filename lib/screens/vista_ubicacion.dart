@@ -1,13 +1,47 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import '../main.dart'; // Para los colores
 
-// Modelo simple para representar un contacto
-class Contact {
-  final String name;
-  final String phone;
+import '../main.dart'; // Colores (backgroundColor, primaryColor, cardColor)
+import '../data/api_service.dart';
+import '../core/session_repository.dart';
+import '../device/location_service.dart';
+import '../device/sms_service.dart';
+
+/// View-model para pintar contactos en esta vista (¡este es el ContactVm!)
+class ContactVm {
+  final int contactoId;
+  final String nombre;
+  final String telefono;
   final String initials;
 
-  Contact({required this.name, required this.phone, required this.initials});
+  ContactVm({
+    required this.contactoId,
+    required this.nombre,
+    required this.telefono,
+    required this.initials,
+  });
+
+  factory ContactVm.fromApi(Map<String, dynamic> j) {
+    final nombre = (j['nombre'] as String?)?.trim() ?? 'Contacto';
+    final tel = (j['telefono'] as String?)?.trim() ?? '';
+    final id = (j['contacto_id'] as num).toInt();
+    return ContactVm(
+      contactoId: id,
+      nombre: nombre,
+      telefono: tel,
+      initials: _buildInitials(nombre),
+    );
+  }
+
+  static String _buildInitials(String full) {
+    // Sin package:characters, para evitar imports extra
+    final parts =
+        full.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    String first(String s) => s.isEmpty ? '' : s[0].toUpperCase();
+    if (parts.isEmpty) return 'C';
+    if (parts.length == 1) return first(parts.first);
+    return (first(parts.first) + first(parts.last));
+  }
 }
 
 class VistaUbicacion extends StatefulWidget {
@@ -18,58 +52,202 @@ class VistaUbicacion extends StatefulWidget {
 }
 
 class _VistaUbicacionState extends State<VistaUbicacion> {
-  // Lista de contactos de ejemplo
-  final List<Contact> _contacts = [
-    Contact(name: 'María González', phone: '+52 555 123 4567', initials: 'M'),
-    Contact(name: 'Carlos Rodríguez', phone: '+52 555 234 5678', initials: 'C'),
-    Contact(name: 'Ana Martínez', phone: '+52 555 345 6789', initials: 'A'),
-    Contact(name: 'Pedro Sánchez', phone: '+52 555 456 7890', initials: 'P'),
-    Contact(name: 'Laura Torres', phone: '+52 555 567 8901', initials: 'L'),
-  ];
+  List<ContactVm> _contacts = [];
+  final Set<int> _selectedIds = {};
+  bool _loading = true;
+  String? _error;
 
-  // Lista para guardar los contactos seleccionados
-  final Set<Contact> _selectedContacts = {};
+  Timer? _sessionTimer;
+  DateTime? _sessionEndAt;
+  Duration _sessionFrequency = const Duration(minutes: 10);
+  bool _sending = false;
 
-  void _onContactTap(Contact contact) {
+  @override
+  void initState() {
+    super.initState();
+    _loadContacts();
+  }
+
+  @override
+  void dispose() {
+    _cancelSession();
+    super.dispose();
+  }
+
+  Future<void> _loadContacts() async {
     setState(() {
-      if (_selectedContacts.contains(contact)) {
-        _selectedContacts.remove(contact);
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final list = await ApiService.getContactos(); // [{contacto_id, nombre, telefono, ...}]
+      final mapped = list
+          .map(ContactVm.fromApi)
+          .where((c) => c.telefono.isNotEmpty)
+          .toList();
+      setState(() {
+        _contacts = mapped;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = 'No se pudieron cargar tus contactos. $e';
+        _loading = false;
+      });
+    }
+  }
+
+  void _onContactTap(ContactVm contact) {
+    setState(() {
+      if (_selectedIds.contains(contact.contactoId)) {
+        _selectedIds.remove(contact.contactoId);
       } else {
-        _selectedContacts.add(contact);
+        _selectedIds.add(contact.contactoId);
       }
     });
   }
 
-  void _showConfirmationDialog() {
+  void _openConfirmationDialog() {
+    final seleccion =
+        _contacts.where((c) => _selectedIds.contains(c.contactoId)).toList();
     showDialog(
       context: context,
       builder: (context) => _ConfirmationDialog(
-        selectedContacts: _selectedContacts.toList(),
-        onConfirm: () {
-          Navigator.of(context).pop(); // Cierra el diálogo de confirmación
-          _showSuccessDialog();
+        selectedContacts: seleccion,
+        onConfirm: (frequency, totalDuration) async {
+          Navigator.of(context).pop(); // cierra diálogo de confirmación
+          await _startShareSession(
+            frequency: frequency,
+            total: totalDuration,
+            selected: seleccion,
+          );
         },
       ),
     );
   }
 
-  void _showSuccessDialog() {
+  Future<void> _startShareSession({
+    required Duration frequency,
+    required Duration total,
+    required List<ContactVm> selected,
+  }) async {
+    // 1) Permisos SMS/Teléfono
+    try {
+      await SmsService.ensureSmsAndPhonePermissions();
+    } catch (e) {
+      _snack('No se obtuvieron permisos para SMS/Teléfono.');
+      return;
+    }
+
+    // 2) Preparar sesión (envío inmediato + periódicos)
+    _cancelSession();
+    final endAt = DateTime.now().add(total);
+    setState(() {
+      _sessionEndAt = endAt;
+      _sessionFrequency = frequency;
+    });
+
+    // Envío inmediato (tick 0)
+    await _sendLocationTo(selected);
+
+    // Envío periódico
+    _sessionTimer = Timer.periodic(frequency, (t) async {
+      if (DateTime.now().isAfter(endAt)) {
+        _cancelSession();
+        _showSuccessDialog(selected);
+        return;
+      }
+      await _sendLocationTo(selected);
+    });
+
+    _snack(
+        'Sesión iniciada: cada ${_fmtDuration(frequency)} durante ${_fmtDuration(total)}.');
+  }
+
+  void _cancelSession() {
+    _sessionTimer?.cancel();
+    _sessionTimer = null;
+    _sessionEndAt = null;
+  }
+
+  Future<void> _sendLocationTo(List<ContactVm> selected) async {
+    if (_sending) return;
+    _sending = true;
+    try {
+      // 3) Ubicación (best-effort)
+      double? lat, lng;
+      try {
+        final pos = await LocationService.getCurrentPosition();
+        lat = pos.latitude;
+        lng = pos.longitude;
+      } catch (_) {
+        lat = null;
+        lng = null;
+      }
+
+      final corredor = await SessionRepository.nombre() ?? 'Corredor';
+      final urlMapa = (lat != null && lng != null)
+          ? LocationService.mapsUrlFrom(lat, lng)
+          : 'no disponible';
+
+      final mensaje = '''
+📍 COMPARTIR UBICACIÓN – CHITA
+Soy $corredor y estoy compartiendo mi ubicación.
+Última ubicación:
+$urlMapa
+(Enviado automáticamente por CHITA)
+'''.trim();
+
+      // 4) Enviar SMS a cada contacto seleccionado
+      int ok = 0, fail = 0;
+      for (final c in selected) {
+        final tel = c.telefono.trim();
+        if (tel.isEmpty) {
+          fail++;
+          continue;
+        }
+        try {
+          await SmsService.sendFlexibleMx(rawPhone: tel, message: mensaje);
+          ok++;
+        } catch (_) {
+          fail++;
+        }
+      }
+
+      if (mounted) {
+        _snack('Ubicación enviada: $ok OK, $fail fallidos.');
+      }
+    } finally {
+      _sending = false;
+    }
+  }
+
+  void _snack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  void _showSuccessDialog(List<ContactVm> selected) {
     showDialog(
       context: context,
       builder: (context) => _SuccessDialog(
-        selectedContacts: _selectedContacts.toList(),
+        selectedContacts: selected,
         onDone: () {
-          // Cierra el dialogo de exito y la pantalla de compartir
-          Navigator.of(context).pop();
-          Navigator.of(context).pop();
+          Navigator.of(context).pop(); // cierra diálogo
+          if (mounted) Navigator.of(context).pop(); // cierra pantalla
         },
       ),
     );
+  }
+
+  String _fmtDuration(Duration d) {
+    if (d.inMinutes % 60 == 0) return '${d.inHours} h';
+    return '${d.inMinutes} min';
   }
 
   @override
   Widget build(BuildContext context) {
-    final bool canContinue = _selectedContacts.isNotEmpty;
+    final canContinue = _selectedIds.isNotEmpty && !_loading && _error == null;
 
     return Scaffold(
       appBar: AppBar(
@@ -80,53 +258,73 @@ class _VistaUbicacionState extends State<VistaUbicacion> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Encabezado
           Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 8.0,
-            ),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Selecciona contactos',
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
+                Text('Selecciona contactos',
+                    style: Theme.of(context).textTheme.headlineSmall),
                 const SizedBox(height: 4),
-                const Text(
-                  'Elige con quién compartir tu ubicación',
-                  style: TextStyle(color: Colors.grey),
-                ),
+                const Text('Elige con quién compartir tu ubicación',
+                    style: TextStyle(color: Colors.grey)),
+                if (_sessionEndAt != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Sesión activa: cada ${_fmtDuration(_sessionFrequency)} hasta '
+                    '${_sessionEndAt!.toLocal()}',
+                    style: const TextStyle(color: Colors.greenAccent),
+                  ),
+                ],
               ],
             ),
           ),
+
+          // Lista / estados
           Expanded(
-            child: ListView.builder(
-              itemCount: _contacts.length,
-              itemBuilder: (context, index) {
-                final contact = _contacts[index];
-                final isSelected = _selectedContacts.contains(contact);
-                return _ContactTile(
-                  contact: contact,
-                  isSelected: isSelected,
-                  onTap: () => _onContactTap(contact),
-                );
-              },
-            ),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : (_error != null)
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Text(_error!,
+                              textAlign: TextAlign.center,
+                              style:
+                                  const TextStyle(color: Colors.redAccent)),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _contacts.length,
+                        itemBuilder: (context, index) {
+                          final c = _contacts[index];
+                          final isSelected =
+                              _selectedIds.contains(c.contactoId);
+                          return _ContactTile(
+                            contact: c,
+                            isSelected: isSelected,
+                            onTap: () => _onContactTap(c),
+                          );
+                        },
+                      ),
           ),
+
+          // Botón continuar
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: canContinue ? _showConfirmationDialog : null,
+                onPressed: canContinue ? _openConfirmationDialog : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: primaryColor,
                   disabledBackgroundColor: Colors.grey[800],
                 ),
                 child: Text(
                   canContinue
-                      ? 'Continuar (${_selectedContacts.length})'
+                      ? 'Continuar (${_selectedIds.length})'
                       : 'Continuar',
                   style: TextStyle(
                     color: canContinue ? Colors.black : Colors.grey[600],
@@ -141,9 +339,12 @@ class _VistaUbicacionState extends State<VistaUbicacion> {
   }
 }
 
-// Widget para cada fila de contacto
+// ==========================
+// Widgets auxiliares
+// ==========================
+
 class _ContactTile extends StatelessWidget {
-  final Contact contact;
+  final ContactVm contact;
   final bool isSelected;
   final VoidCallback onTap;
 
@@ -167,8 +368,10 @@ class _ContactTile extends StatelessWidget {
           ),
         ),
       ),
-      title: Text(contact.name, style: const TextStyle(color: Colors.white)),
-      subtitle: Text(contact.phone, style: const TextStyle(color: Colors.grey)),
+      title:
+          Text(contact.nombre, style: const TextStyle(color: Colors.white)),
+      subtitle:
+          Text(contact.telefono, style: const TextStyle(color: Colors.grey)),
       trailing: Container(
         width: 24,
         height: 24,
@@ -185,10 +388,9 @@ class _ContactTile extends StatelessWidget {
   }
 }
 
-// Diálogo de confirmación de tiempo
 class _ConfirmationDialog extends StatefulWidget {
-  final List<Contact> selectedContacts;
-  final VoidCallback onConfirm;
+  final List<ContactVm> selectedContacts;
+  final void Function(Duration frequency, Duration totalDuration) onConfirm;
 
   const _ConfirmationDialog({
     required this.selectedContacts,
@@ -203,6 +405,32 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
   String _selectedFrequency = '10 min';
   String _selectedDuration = '1h';
 
+  Duration get _freqDuration {
+    switch (_selectedFrequency) {
+      case '30 min':
+        return const Duration(minutes: 30);
+      case '1 hora':
+        return const Duration(hours: 1);
+      default:
+        return const Duration(minutes: 10);
+    }
+  }
+
+  Duration get _totalDuration {
+    switch (_selectedDuration) {
+      case '2h':
+        return const Duration(hours: 2);
+      case '3h':
+        return const Duration(hours: 3);
+      case '4h':
+        return const Duration(hours: 4);
+      case '5h':
+        return const Duration(hours: 5);
+      default:
+        return const Duration(hours: 1);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -213,14 +441,10 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            '¿Quieres compartir tu ubicación con los contactos seleccionados?',
-          ),
+          const Text('¿Quieres compartir tu ubicación con los contactos seleccionados?'),
           const SizedBox(height: 20),
-          const Text(
-            'Frecuencia de actualización',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
+          const Text('Frecuencia de actualización',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -241,10 +465,8 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
             }).toList(),
           ),
           const SizedBox(height: 20),
-          const Text(
-            'Duración de la sesión',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
+          const Text('Duración de la sesión',
+              style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -283,7 +505,8 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
             const SizedBox(width: 10),
             Expanded(
               child: ElevatedButton(
-                onPressed: widget.onConfirm,
+                onPressed: () =>
+                    widget.onConfirm(_freqDuration, _totalDuration),
                 child: const Text('Compartir'),
               ),
             ),
@@ -294,9 +517,8 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
   }
 }
 
-// Diálogo de éxito
 class _SuccessDialog extends StatelessWidget {
-  final List<Contact> selectedContacts;
+  final List<ContactVm> selectedContacts;
   final VoidCallback onDone;
 
   const _SuccessDialog({required this.selectedContacts, required this.onDone});
@@ -316,14 +538,12 @@ class _SuccessDialog extends StatelessWidget {
             child: Icon(Icons.check, color: Colors.white, size: 30),
           ),
           const SizedBox(height: 20),
-          const Text(
-            '¡Ubicación compartida!',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
+          const Text('¡Ubicación compartida!',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text('Tu ubicación se ha compartido exitosamente con:'),
+          const Text('Se compartió tu ubicación con:'),
           const SizedBox(height: 16),
-          ...selectedContacts.map((c) => Text('• ${c.name}')).toList(),
+          ...selectedContacts.map((c) => Text('• ${c.nombre}')).toList(),
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,

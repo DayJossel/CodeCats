@@ -2,33 +2,53 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../core/session_repository.dart';
 
+class ApiHttpException implements Exception {
+  final String message;
+  final int? statusCode;
+  ApiHttpException(this.message, {this.statusCode});
+  @override
+  String toString() => 'ApiHttpException($statusCode): $message';
+}
+
 class ApiService {
-  // ⚠️ Cambia por tu URL real
   static const String baseUrl = 'http://157.137.187.110:8000';
 
+  /// Headers con credenciales. Falla si no hay sesión.
   static Future<Map<String, String>> _authHeaders() async {
     final cid = await SessionRepository.corredorId();
     final pwd = await SessionRepository.contrasenia();
+    if (cid == null || pwd == null || pwd.isEmpty) {
+      throw ApiHttpException('No hay credenciales de sesión.');
+    }
     return {
+      'Accept': 'application/json',
       'Content-Type': 'application/json',
-      if (cid != null) 'X-Corredor-Id': '$cid',
-      if (pwd != null) 'X-Contrasenia': pwd,
+      'X-Corredor-Id': '$cid',
+      'X-Contrasenia': pwd,
     };
   }
 
-  // GET /contactos
+  // ---------- Contactos ----------
+
+  /// GET /contactos  ->  List<Map<String,dynamic>>
   static Future<List<Map<String, dynamic>>> getContactos() async {
     final headers = await _authHeaders();
     final url = Uri.parse('$baseUrl/contactos');
-    final resp = await http.get(url, headers: headers);
+
+    final resp = await http.get(url, headers: headers)
+      .timeout(const Duration(seconds: 15));
+
     if (resp.statusCode == 200) {
-      final list = jsonDecode(resp.body) as List;
-      return list.cast<Map<String, dynamic>>();
+      final data = jsonDecode(resp.body);
+      if (data is List) return data.cast<Map<String, dynamic>>();
+      throw ApiHttpException('Formato inesperado de /contactos');
     }
-    throw Exception('No se pudieron obtener contactos (${resp.statusCode}).');
+    _throwHttp(resp);
   }
 
-  // POST /alertas/activar
+  // ---------- Alertas ----------
+
+  /// POST /alertas/activar  ->  { historial_id, ... }
   static Future<Map<String, dynamic>> activarAlerta({
     required String mensaje,
     required double lat,
@@ -37,54 +57,60 @@ class ApiService {
   }) async {
     final headers = await _authHeaders();
     final url = Uri.parse('$baseUrl/alertas/activar');
+
     final body = jsonEncode({
       'mensaje': mensaje,
       'lat': lat,
       'lng': lng,
       'contacto_ids': contactoIds,
     });
-    final resp = await http.post(url, headers: headers, body: body);
+
+    final resp = await http.post(url, headers: headers, body: body)
+      .timeout(const Duration(seconds: 20));
+
     if (resp.statusCode == 201 || resp.statusCode == 200) {
-      return jsonDecode(resp.body) as Map<String, dynamic>;
+      final data = jsonDecode(resp.body);
+      if (data is Map<String, dynamic>) return data;
+      throw ApiHttpException('Formato inesperado de /alertas/activar');
     }
-    throw Exception('Fallo al activar alerta (${resp.statusCode}).');
+    _throwHttp(resp);
   }
 
-  // POST /alertas/enviar
-  static Future<void> registrarEnvios({
-    required int historialId,
-    required List<int> contactoIds,
-  }) async {
-    final headers = await _authHeaders();
-    final url = Uri.parse('$baseUrl/alertas/enviar');
-    final body = jsonEncode({
-      'historial_id': historialId,
-      'contacto_ids': contactoIds,
-    });
-    final resp = await http.post(url, headers: headers, body: body);
-    if (resp.statusCode != 200) {
-      throw Exception('Fallo al registrar envíos (${resp.statusCode}).');
-    }
-  }
+  // ---------- Corredores (login) ----------
 
-  /// POST /corredores/login
+  /// POST /corredores/login  ->  { corredor_id, nombre, correo, ... }
   static Future<Map<String, dynamic>> login({
     required String correo,
     required String contrasenia,
   }) async {
     final url = Uri.parse('$baseUrl/corredores/login');
+
     final resp = await http.post(
       url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'correo': correo,
-        'contrasenia': contrasenia,
-      }),
-    );
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({'correo': correo, 'contrasenia': contrasenia}),
+    ).timeout(const Duration(seconds: 15));
+
     if (resp.statusCode == 200) {
-      return jsonDecode(resp.body) as Map<String, dynamic>;
+      final data = jsonDecode(resp.body);
+      if (data is Map<String, dynamic>) return data;
+      throw ApiHttpException('Formato inesperado de /corredores/login');
     }
-    throw Exception('Login falló (${resp.statusCode}).');
+    _throwHttp(resp);
+  }
+
+  // ---------- Helpers ----------
+
+  static Never _throwHttp(http.Response resp) {
+    try {
+      final j = jsonDecode(resp.body);
+      throw ApiHttpException(j.toString(), statusCode: resp.statusCode);
+    } catch (_) {
+      throw ApiHttpException('HTTP ${resp.statusCode}: ${resp.body}',
+          statusCode: resp.statusCode);
+    }
   }
 }
-

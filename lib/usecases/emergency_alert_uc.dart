@@ -1,5 +1,4 @@
-// lib/usecases/emergency_alert_uc.dart
-import 'package:flutter/foundation.dart';                 // <- para debugPrint
+import 'package:flutter/foundation.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../core/session_repository.dart';
 import '../data/api_service.dart';
@@ -16,14 +15,13 @@ class EmergencyAlertResult {
 }
 
 class EmergencyAlertUC {
-  /// Dispara la alerta:
-  /// 1) Obtiene contactos
-  /// 2) Pide permisos SMS/Teléfono
-  /// 3) Toma ubicación (best-effort)
-  /// 4) Arma mensaje (formato SRS)
+  /// CU-1:
+  /// 1) Obtener contactos (o filtrar por ids)
+  /// 2) Permisos SMS/Teléfono
+  /// 3) Ubicación (best-effort)
+  /// 4) Mensaje (formato SRS)
   /// 5) (si hay internet) POST /alertas/activar
-  /// 6) Envía SMS a cada contacto (flex: 10 dígitos, 52..., +52..., fallback a app de SMS)
-  /// 7) (si hay internet) POST /alertas/enviar con los que sí salieron
+  /// 6) Enviar SMS a cada contacto
   static Future<EmergencyAlertResult> trigger({
     String? mensajeLibre,
     List<int>? soloContactoIds,
@@ -34,17 +32,18 @@ class EmergencyAlertUC {
       throw Exception('No tienes contactos de confianza. Agrega al menos uno.');
     }
 
-    final selected = (soloContactoIds == null || soloContactoIds.isEmpty)
+    final seleccion = (soloContactoIds == null || soloContactoIds.isEmpty)
         ? contactos
-        : contactos
-            .where((c) => soloContactoIds.contains((c['contacto_id'] as num).toInt()))
-            .toList();
+        : contactos.where((c) {
+            final id = (c['contacto_id'] as num).toInt();
+            return soloContactoIds.contains(id);
+          }).toList();
 
-    if (selected.isEmpty) {
+    if (seleccion.isEmpty) {
       throw Exception('La selección de contactos quedó vacía.');
     }
 
-    // 2) Permisos SMS/Teléfono (vía plugin + permission_handler)
+    // 2) Permisos SMS/Teléfono
     await SmsService.ensureSmsAndPhonePermissions();
 
     // 3) Ubicación (best-effort)
@@ -53,19 +52,17 @@ class EmergencyAlertUC {
       final pos = await LocationService.getCurrentPosition();
       lat = pos.latitude;
       lng = pos.longitude;
-    } catch (_) {
-      lat = null;
-      lng = null;
+    } catch (e) {
+      debugPrint('[ALERTA] Ubicación no disponible: $e');
     }
 
-    // 4) Mensaje EXACTO del SRS
+    // 4) Mensaje (según SRS)
     final nombre = await SessionRepository.nombre() ?? 'Corredor';
+    final String urlMapa = (lat != null && lng != null)
+        ? LocationService.mapsUrlFrom(lat, lng)
+        : 'no disponible';
 
-final String urlMapa = (lat != null && lng != null)
-    ? LocationService.mapsUrlFrom(lat!, lng!)
-    : 'no disponible';
-
-final mensajePorDefecto = '''
+    final mensajePorDefecto = '''
 🚨 ALERTA CHITA 🚨
 Soy $nombre
 Necesito ayuda urgente.
@@ -74,66 +71,49 @@ $urlMapa
 Activado desde la app CHITA.
 '''.trim();
 
-final mensaje = (mensajeLibre?.trim().isNotEmpty ?? false)
-    ? mensajeLibre!.trim()
-    : mensajePorDefecto;
+    final mensaje = (mensajeLibre != null && mensajeLibre.trim().isNotEmpty)
+        ? mensajeLibre.trim()
+        : mensajePorDefecto;
 
-    // 5) Registrar sesión de alerta si hay internet
-    final isOnline = await _isOnline();
+    // 5) Guardar historial si hay internet
+    final online = await _isOnline();
     int? historialId;
-    final ids = selected.map<int>((c) => (c['contacto_id'] as num).toInt()).toList();
+    final ids = seleccion.map<int>((c) => (c['contacto_id'] as num).toInt()).toList();
 
-    if (isOnline) {
+    if (online) {
       try {
-        final det = await ApiService.activarAlerta(
+        final res = await ApiService.activarAlerta(
           mensaje: mensaje,
           lat: (lat ?? 0),
           lng: (lng ?? 0),
           contactoIds: ids,
         );
-        historialId = (det['historial_id'] as num?)?.toInt();
+        historialId = (res['historial_id'] as num?)?.toInt();
         debugPrint('[ALERTA] Historial creado: $historialId');
       } catch (e) {
         debugPrint('[ALERTA] activarAlerta falló: $e (continuo con SMS)');
       }
     } else {
-      debugPrint('[ALERTA] Sin internet - envío solo SMS.');
+      debugPrint('[ALERTA] Sin internet - guardado pendiente (solo SMS).');
     }
 
-    // 6) ENVÍO DE SMS (flexible MX) + logs
+    // 6) Envío de SMS (flexible para MX)
     final fallidos = <int>[];
-
-    for (final c in selected) {
-      final raw = (c['telefono'] as String?)?.trim() ?? '';
+    for (final c in seleccion) {
+      final telRaw = (c['telefono'] as String?)?.trim() ?? '';
       final id = (c['contacto_id'] as num).toInt();
 
-      if (raw.isEmpty) {
+      if (telRaw.isEmpty) {
         fallidos.add(id);
         continue;
       }
 
       try {
-        debugPrint('[ALERTA] Enviando SMS a contacto_id=$id tel="$raw"');
-        await SmsService.sendFlexibleMx(rawPhone: raw, message: mensaje);
+        debugPrint('[ALERTA] Enviando SMS a contacto_id=$id tel="$telRaw"');
+        await SmsService.sendFlexibleMx(rawPhone: telRaw, message: mensaje);
       } catch (e) {
         debugPrint('[ALERTA] Error enviando a contacto_id=$id: $e');
         fallidos.add(id);
-      }
-    }
-
-    // 7) Registrar envíos OK si hay internet e historial
-    if (isOnline && historialId != null) {
-      final enviadosOk = ids.where((id) => !fallidos.contains(id)).toList();
-      if (enviadosOk.isNotEmpty) {
-        try {
-          await ApiService.registrarEnvios(
-            historialId: historialId!,
-            contactoIds: enviadosOk,
-          );
-          debugPrint('[ALERTA] Registrados envíos OK: $enviadosOk');
-        } catch (e) {
-          debugPrint('[ALERTA] registrarEnvios falló: $e');
-        }
       }
     }
 
