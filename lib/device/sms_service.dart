@@ -15,7 +15,6 @@ class SmsService {
     final sms = await Permission.sms.status;
     final phone = await Permission.phone.status;
 
-    // ❌ Antes: sms.status / phone.status   ✅ Ahora: imprime el enum o usa .isGranted
     debugPrint('[SMS] perms pluginOk=$pluginOk sms=$sms phone=$phone');
 
     // 2) Solicita si hace falta
@@ -49,7 +48,6 @@ class SmsService {
       },
     );
 
-    // ⚠️ Antes dábamos SENT si no había callback; ahora lo tratamos como **FALLO**
     SendStatus? status;
     try {
       status = await completer.future.timeout(const Duration(seconds: 10));

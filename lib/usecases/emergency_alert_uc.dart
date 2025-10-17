@@ -60,25 +60,23 @@ class EmergencyAlertUC {
 
     // 4) Mensaje EXACTO del SRS
     final nombre = await SessionRepository.nombre() ?? 'Corredor';
-    final cid = await SessionRepository.corredorId() ?? 0;
 
-    String _visibleId(int id, {String prefix = 'CHTA-', int pad = 3}) =>
-        '$prefix${id.toString().padLeft(pad, '0')}';
+final String urlMapa = (lat != null && lng != null)
+    ? LocationService.mapsUrlFrom(lat!, lng!)
+    : 'no disponible';
 
-    final idVisible = _visibleId(cid);
-    final ubicacionLinea = (lat != null && lng != null)
-        ? 'Última ubicación: https://maps.google.com/?q=$lat,$lng'
-        : 'Última ubicación: no disponible';
-
-    final mensajePorDefecto = '''
+final mensajePorDefecto = '''
 🚨 ALERTA CHITA 🚨
-Soy $nombre (ID: $idVisible).
+Soy $nombre
 Necesito ayuda urgente.
-$ubicacionLinea
+Última ubicación registrada:
+$urlMapa
+Activado desde la app CHITA.
 '''.trim();
 
-    final mensaje =
-        (mensajeLibre?.trim().isNotEmpty ?? false) ? mensajeLibre!.trim() : mensajePorDefecto;
+final mensaje = (mensajeLibre?.trim().isNotEmpty ?? false)
+    ? mensajeLibre!.trim()
+    : mensajePorDefecto;
 
     // 5) Registrar sesión de alerta si hay internet
     final isOnline = await _isOnline();

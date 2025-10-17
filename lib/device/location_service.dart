@@ -1,34 +1,62 @@
+// lib/device/location_service.dart
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 class LocationService {
-  /// Pide permiso y devuelve Position. Lanza Exception con mensaje entendible si falla.
-  static Future<Position> getCurrentPosition() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  /// Pide permisos y habilita el servicio si está apagado.
+  static Future<void> _ensurePermission() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      throw Exception('GPS desactivado. Actívalo y vuelve a intentar.');
+      // No forzamos settings aquí; avisamos por log y seguimos (usaremos fallback)
+      debugPrint('[LOC] El servicio de ubicación está desactivado.');
     }
 
-    // Permiso a nivel plugin Geolocator
-    LocationPermission perm = await Geolocator.checkPermission();
-    if (perm == LocationPermission.denied) {
-      perm = await Geolocator.requestPermission();
-      if (perm == LocationPermission.denied) {
-        throw Exception('Permiso de ubicación denegado.');
-      }
-    }
-    if (perm == LocationPermission.deniedForever) {
-      throw Exception('Permiso de ubicación denegado permanentemente. Ve a Ajustes.');
+    LocationPermission permission = await Geolocator.checkPermission();
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
     }
 
-    // En Android 12+ algunos fabricantes piden también el de precisión
-    final pStatus = await Permission.location.request();
-    if (!pStatus.isGranted) {
-      throw Exception('Permiso de ubicación no concedido.');
+    if (permission == LocationPermission.deniedForever) {
+      // El usuario denegó permanentemente. Puedes abrir ajustes si quieres:
+      // await Geolocator.openAppSettings();
+      throw Exception(
+        'Permiso de ubicación denegado permanentemente. Habilítalo en Ajustes.',
+      );
     }
 
-    return Geolocator.getCurrentPosition(
-      desiredAccuracy: LocationAccuracy.high,
-    );
+    if (permission == LocationPermission.denied) {
+      throw Exception('Permiso de ubicación denegado.');
+    }
   }
+
+  /// Intenta obtener la ubicación actual con alta precisión y timeout,
+  /// con fallback a la última conocida (si existe).
+  static Future<Position> getCurrentPosition({
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    await _ensurePermission();
+
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: timeout,
+      );
+      return pos;
+    } on TimeoutException catch (_) {
+      debugPrint('[LOC] Timeout getCurrentPosition, probando lastKnown...');
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) return last;
+      rethrow;
+    } catch (e) {
+      debugPrint('[LOC] Error getCurrentPosition ($e), probando lastKnown...');
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) return last;
+      rethrow;
+    }
+  }
+
+  static String mapsUrlFrom(double lat, double lng) =>
+      'https://maps.google.com/?q=$lat,$lng';
 }
