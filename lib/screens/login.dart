@@ -80,6 +80,7 @@ class _LoginViewState extends State<_LoginView> {
           await prefs.setInt('corredor_id', data['corredor_id']);
           await prefs.setString('nombre', data['nombre']);
           await prefs.setString('correo', correo);
+          await prefs.setString('contrasenia', contrasenia);
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Bienvenido ${data['nombre']}')),
