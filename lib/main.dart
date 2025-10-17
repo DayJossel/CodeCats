@@ -1,16 +1,19 @@
-import 'package:chita_app/screens/vista_historial.dart';
-import 'package:chita_app/screens/vista_contactos.dart';
-import 'package:chita_app/screens/vista_alerta.dart';
-import 'package:chita_app/screens/login.dart';
-import 'package:chita_app/screens/profile.dart';
-import 'package:chita_app/screens/vista_espacios.dart';
 import 'package:flutter/material.dart';
+
+import 'core/session_repository.dart';
+
+import 'screens/login.dart';          // AuthScreen
+import 'screens/profile.dart';        // ProfileScreen (tab)
+import 'screens/vista_alerta.dart';
+import 'screens/vista_contactos.dart';
+import 'screens/vista_historial.dart';
+import 'screens/vista_espacios.dart';
 
 // Colores principales de la aplicación para fácil acceso
 const Color primaryColor = Color(0xFFFFC700); // Amarillo/Dorado
-const Color accentColor = Color(0xFFFE526E); // Rojo/Rosa SOS
+const Color accentColor = Color(0xFFFE526E);  // Rojo/Rosa SOS
 const Color backgroundColor = Color(0xFF121212); // Fondo oscuro
-const Color cardColor = Color(0xFF1E1E1E); // Color de tarjetas
+const Color cardColor = Color(0xFF1E1E1E);    // Color de tarjetas
 
 void main() {
   runApp(const RunnerApp());
@@ -28,7 +31,6 @@ class RunnerApp extends StatelessWidget {
         brightness: Brightness.dark,
         scaffoldBackgroundColor: backgroundColor,
         primaryColor: primaryColor,
-        // Definimos un tema para los botones elevados
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             foregroundColor: Colors.black,
@@ -39,7 +41,6 @@ class RunnerApp extends StatelessWidget {
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
         ),
-        // Tema para la barra de navegación inferior
         bottomNavigationBarTheme: const BottomNavigationBarThemeData(
           backgroundColor: cardColor,
           selectedItemColor: primaryColor,
@@ -56,7 +57,38 @@ class RunnerApp extends StatelessWidget {
           bodyMedium: TextStyle(color: Colors.grey),
         ),
       ),
-      home: const AuthScreen(),
+      home: const _AuthGate(), // 👈 IMPORTANTE: ya no AuthScreen directo
+    );
+  }
+}
+
+/// Gate que decide si hay sesión persistida.
+/// Si hay (id y contraseña), entra directo a MainScreen; si no, a AuthScreen.
+class _AuthGate extends StatefulWidget {
+  const _AuthGate({super.key});
+  @override
+  State<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<_AuthGate> {
+  Future<bool> _isLoggedIn() async {
+    final id = await SessionRepository.corredorId();
+    final pwd = await SessionRepository.contrasenia();
+    return id != null && (pwd != null && pwd.isNotEmpty);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: _isLoggedIn(),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return snap.data! ? const MainScreen() : const AuthScreen();
+      },
     );
   }
 }
@@ -92,22 +124,10 @@ class _MainScreenState extends State<MainScreen> {
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.route),
-            label: 'Espacios para correr',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.people_outline),
-            label: 'Contactos',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.notifications_none),
-            label: 'Alertas',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'Perfil',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.route), label: 'Espacios para correr'),
+          BottomNavigationBarItem(icon: Icon(Icons.people_outline), label: 'Contactos'),
+          BottomNavigationBarItem(icon: Icon(Icons.notifications_none), label: 'Alertas'),
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
         ],
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,

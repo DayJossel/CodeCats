@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+
 import '../core/session_repository.dart';
-import '../main.dart'; // Para colores y MainScreen
+import '../main.dart'; // Colores y MainScreen
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -51,11 +52,19 @@ class _LoginViewState extends State<_LoginView> {
   final contraseniaController = TextEditingController();
   bool _isLoading = false;
 
+  @override
+  void dispose() {
+    correoController.dispose();
+    contraseniaController.dispose();
+    super.dispose();
+  }
+
   Future<void> _login() async {
     final correo = correoController.text.trim();
     final contrasenia = contraseniaController.text.trim();
 
     if (correo.isEmpty || contrasenia.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Por favor llena todos los campos')),
       );
@@ -65,16 +74,17 @@ class _LoginViewState extends State<_LoginView> {
     setState(() => _isLoading = true);
 
     try {
-      final response = await http.post(
+      final resp = await http.post(
         Uri.parse('http://157.137.187.110:8000/corredores/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'correo': correo, 'contrasenia': contrasenia}),
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body);
 
-        if (data['ok'] == true) {
+        if (data is Map && data['ok'] == true) {
+          // 1) Guardar sesión de forma persistente
           await SessionRepository.saveLogin(
             corredorId: (data['corredor_id'] as num).toInt(),
             contrasenia: contrasenia,
@@ -82,6 +92,9 @@ class _LoginViewState extends State<_LoginView> {
             correo: correo,
           );
 
+          if (!mounted) return;
+
+          // 2) Feedback y navegación al Home
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('Bienvenido ${data['nombre']}')),
           );
@@ -90,23 +103,25 @@ class _LoginViewState extends State<_LoginView> {
             MaterialPageRoute(builder: (_) => const MainScreen()),
           );
         } else {
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Credenciales incorrectas')),
           );
         }
       } else {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error ${response.statusCode}: ${response.body}'),
+            content: Text('Error ${resp.statusCode}: ${resp.body}'),
           ),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -185,6 +200,15 @@ class _SignUpViewState extends State<_SignUpView> {
   final telefonoController = TextEditingController();
   bool _isLoading = false;
 
+  @override
+  void dispose() {
+    nombreController.dispose();
+    correoController.dispose();
+    contraseniaController.dispose();
+    telefonoController.dispose();
+    super.dispose();
+  }
+
   Future<void> _register() async {
     final nombre = nombreController.text.trim();
     final correo = correoController.text.trim();
@@ -195,6 +219,7 @@ class _SignUpViewState extends State<_SignUpView> {
         correo.isEmpty ||
         contrasenia.isEmpty ||
         telefono.isEmpty) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Por favor llena todos los campos')),
       );
@@ -204,7 +229,7 @@ class _SignUpViewState extends State<_SignUpView> {
     setState(() => _isLoading = true);
 
     try {
-      final response = await http.post(
+      final resp = await http.post(
         Uri.parse('http://157.137.187.110:8000/corredores'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -215,14 +240,16 @@ class _SignUpViewState extends State<_SignUpView> {
         }),
       );
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        final data = jsonDecode(response.body);
+      if (resp.statusCode == 200 || resp.statusCode == 201) {
+        final data = jsonDecode(resp.body);
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Cuenta creada: ${data['nombre']}')),
         );
-        widget.onToggle();
+        widget.onToggle(); // vuelve a la vista de login
       } else {
-        final error = jsonDecode(response.body);
+        final error = jsonDecode(resp.body);
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -232,11 +259,11 @@ class _SignUpViewState extends State<_SignUpView> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
