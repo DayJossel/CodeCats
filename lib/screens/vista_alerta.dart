@@ -1,8 +1,8 @@
 import 'dart:async';
-
-import 'package:chita_app/screens/vista_ubicacion.dart';
 import 'package:flutter/material.dart';
-import '../main.dart'; // Importamos para usar los colores
+import 'package:telephony/telephony.dart';
+import '../main.dart';
+import 'vista_ubicacion.dart';
 
 class VistaAlerta extends StatefulWidget {
   const VistaAlerta({super.key});
@@ -17,6 +17,7 @@ class _VistaAlertaState extends State<VistaAlerta> {
   late Timer _timer;
   double _waveAnimation = 0.0;
   late Timer _waveTimer;
+  final Telephony telephony = Telephony.instance;
 
   void _startCountdown() {
     setState(() {
@@ -25,7 +26,6 @@ class _VistaAlertaState extends State<VistaAlerta> {
       _waveAnimation = 0.0;
     });
 
-    // Timer para la cuenta regresiva
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         if (_countdownValue > 1) {
@@ -39,7 +39,6 @@ class _VistaAlertaState extends State<VistaAlerta> {
       });
     });
 
-    // Timer para la animación de ondas
     _waveTimer = Timer.periodic(const Duration(milliseconds: 600), (timer) {
       setState(() {
         _waveAnimation = _waveAnimation == 0.0 ? 1.0 : 0.0;
@@ -48,12 +47,8 @@ class _VistaAlertaState extends State<VistaAlerta> {
   }
 
   void _cancelCountdown() {
-    if (_timer.isActive) {
-      _timer.cancel();
-    }
-    if (_waveTimer.isActive) {
-      _waveTimer.cancel();
-    }
+    if (_timer.isActive) _timer.cancel();
+    if (_waveTimer.isActive) _waveTimer.cancel();
     setState(() {
       _isCountingDown = false;
       _countdownValue = 3;
@@ -61,6 +56,42 @@ class _VistaAlertaState extends State<VistaAlerta> {
     });
   }
 
+  // ✅ Envío real del SMS
+  Future<bool> _enviarAlerta() async {
+    try {
+      // Datos del corredor (luego puedes traerlos desde tu backend o base local)
+      const String nombre = "Jorge Ruvalcaba";
+      const String id = "CHTA-023";
+      const double lat = 20.6751;
+      const double lng = -103.3473;
+
+      final String mensaje =
+          '''
+🚨 ALERTA CHITA 🚨
+Soy $nombre (ID: $id).
+Necesito ayuda urgente.
+Última ubicación: https://maps.google.com/?q=$lat,$lng
+''';
+
+      // Contactos de confianza (números reales con prefijo internacional)
+      final List<String> contactos = ["+5213312345678", "+5213333345678"];
+
+      bool permisos = await telephony.requestSmsPermissions ?? false;
+
+      if (!permisos) return false;
+
+      for (String numero in contactos) {
+        await telephony.sendSms(to: numero, message: mensaje);
+      }
+
+      return true;
+    } catch (e) {
+      print("Error al enviar SMS: $e");
+      return false;
+    }
+  }
+
+  // ✅ Diálogo de confirmación con resultado real
   void _showSosConfirmationDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -76,7 +107,7 @@ class _VistaAlertaState extends State<VistaAlerta> {
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
           ),
           content: const Text(
-            'Esto notificará a todos tus contactos de emergencia con tu ubicación actual.',
+            'Esto notificará a tus contactos de emergencia con tu ubicación actual.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.grey, fontSize: 14),
           ),
@@ -93,9 +124,7 @@ class _VistaAlertaState extends State<VistaAlerta> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                   child: const Text('Cancelar'),
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
+                  onPressed: () => Navigator.of(context).pop(),
                 ),
                 const SizedBox(height: 10),
                 ElevatedButton(
@@ -105,9 +134,38 @@ class _VistaAlertaState extends State<VistaAlerta> {
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                   child: const Text('Enviar Alerta'),
-                  onPressed: () {
-                    // Aquí iría la lógica para enviar la alerta
-                    Navigator.of(context).pop();
+                  onPressed: () async {
+                    Navigator.of(context).pop(); // Cierra el diálogo
+
+                    bool success = await _enviarAlerta();
+
+                    if (!mounted) return;
+
+                    if (success) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            '🚨 Alerta enviada con éxito',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          backgroundColor: Colors.green,
+                          behavior: SnackBarBehavior.floating,
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            '❌ Falló el envío de la alerta. Intenta de nuevo.',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          backgroundColor: Colors.redAccent,
+                          behavior: SnackBarBehavior.floating,
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                    }
                   },
                 ),
               ],
@@ -120,12 +178,8 @@ class _VistaAlertaState extends State<VistaAlerta> {
 
   @override
   void dispose() {
-    if (_timer.isActive) {
-      _timer.cancel();
-    }
-    if (_waveTimer.isActive) {
-      _waveTimer.cancel();
-    }
+    if (_timer.isActive) _timer.cancel();
+    if (_waveTimer.isActive) _waveTimer.cancel();
     super.dispose();
   }
 
@@ -158,7 +212,6 @@ class _VistaAlertaState extends State<VistaAlerta> {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    // Efecto de ondas
                     if (_isCountingDown)
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 600),
@@ -169,33 +222,8 @@ class _VistaAlertaState extends State<VistaAlerta> {
                             0.3 - (_waveAnimation * 0.2),
                           ),
                           shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.red.withOpacity(
-                              0.5 - (_waveAnimation * 0.3),
-                            ),
-                            width: 2,
-                          ),
                         ),
                       ),
-                    if (_isCountingDown)
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 600),
-                        width: 180 + (_waveAnimation * 20),
-                        height: 180 + (_waveAnimation * 20),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(
-                            0.2 - (_waveAnimation * 0.15),
-                          ),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.red.withOpacity(
-                              0.4 - (_waveAnimation * 0.25),
-                            ),
-                            width: 1.5,
-                          ),
-                        ),
-                      ),
-                    // Botón principal
                     GestureDetector(
                       onTapDown: (_) => _startCountdown(),
                       onTapUp: (_) => _cancelCountdown(),
@@ -250,7 +278,6 @@ class _VistaAlertaState extends State<VistaAlerta> {
                 ),
               ),
               const Spacer(),
-              // --- CARD HORIZONTAL COMPARTIR UBICACIÓN ---
               GestureDetector(
                 onTap: () {
                   Navigator.push(
@@ -262,7 +289,7 @@ class _VistaAlertaState extends State<VistaAlerta> {
                 },
                 child: Container(
                   width: double.infinity,
-                  height: 80, // Altura ajustada para formato horizontal
+                  height: 80,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: cardColor,
@@ -277,9 +304,9 @@ class _VistaAlertaState extends State<VistaAlerta> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(
+                            const Text(
                               'Compartir Ubicación',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 16,
@@ -308,55 +335,6 @@ class _VistaAlertaState extends State<VistaAlerta> {
               const Spacer(),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _FeatureCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback? onTap;
-
-  const _FeatureCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: cardColor,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: primaryColor, size: 30),
-            const SizedBox(height: 15),
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-            ),
-            if (subtitle.isNotEmpty)
-              Text(
-                subtitle,
-                style: const TextStyle(color: Colors.grey, fontSize: 12),
-              ),
-          ],
         ),
       ),
     );
