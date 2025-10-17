@@ -75,7 +75,6 @@ class _LoginViewState extends State<_LoginView> {
         final data = jsonDecode(response.body);
 
         if (data['ok'] == true) {
-          // Guardar datos del usuario localmente
           final prefs = await SharedPreferences.getInstance();
           await prefs.setInt('corredor_id', data['corredor_id']);
           await prefs.setString('nombre', data['nombre']);
@@ -220,7 +219,7 @@ class _SignUpViewState extends State<_SignUpView> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Cuenta creada: ${data['nombre']}')),
         );
-        widget.onToggle(); // Regresar a pantalla de login
+        widget.onToggle();
       } else {
         final error = jsonDecode(response.body);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -253,28 +252,6 @@ class _SignUpViewState extends State<_SignUpView> {
         const Text(
           'Únete a CHITA para correr seguro',
           style: TextStyle(color: Colors.grey, fontSize: 16),
-        ),
-        const SizedBox(height: 30),
-        Center(
-          child: Stack(
-            alignment: Alignment.bottomRight,
-            children: [
-              const CircleAvatar(
-                radius: 50,
-                backgroundColor: cardColor,
-                child: Icon(Icons.person, size: 50, color: Colors.grey),
-              ),
-              CircleAvatar(
-                radius: 15,
-                backgroundColor: Colors.grey,
-                child: const Icon(
-                  Icons.camera_alt,
-                  size: 15,
-                  color: primaryColor,
-                ),
-              ),
-            ],
-          ),
         ),
         const SizedBox(height: 30),
         _buildTextField(label: 'Nombre completo', controller: nombreController),

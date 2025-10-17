@@ -180,19 +180,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: ListView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20),
           children: [
-            Column(
-              children: [
-                const CircleAvatar(
-                  radius: 45,
-                  backgroundColor: cardColor,
-                  child: Icon(Icons.person, size: 50, color: Colors.white70),
+            Center(
+              child: Text(
+                correo,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                 ),
-                const SizedBox(height: 12),
-                Text(
-                  correo,
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-              ],
+              ),
             ),
             const SizedBox(height: 30),
             const _SectionTitle(title: 'Información Personal'),
