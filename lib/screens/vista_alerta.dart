@@ -16,9 +16,9 @@ class _VistaAlertaState extends State<VistaAlerta> {
   String? _statusMsg;
   bool _isCountingDown = false;
   int _countdownValue = 3;
-  late Timer _timer;
+  Timer? _timer; // ✅ Cambiado a nullable
   double _waveAnimation = 0.0;
-  late Timer _waveTimer;
+  Timer? _waveTimer; // ✅ Cambiado a nullable
 
   void _startCountdown() {
     setState(() {
@@ -27,13 +27,14 @@ class _VistaAlertaState extends State<VistaAlerta> {
       _waveAnimation = 0.0;
     });
 
+    // ✅ Ahora se inicializan correctamente
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         if (_countdownValue > 1) {
           _countdownValue--;
         } else {
-          _timer.cancel();
-          _waveTimer.cancel();
+          _timer?.cancel(); // ✅ Usar ?. en lugar de .
+          _waveTimer?.cancel(); // ✅ Usar ?. en lugar de .
           _isCountingDown = false;
           _showSosConfirmationDialog(context);
         }
@@ -88,10 +89,9 @@ class _VistaAlertaState extends State<VistaAlerta> {
     }
   }
 
-
   void _cancelCountdown() {
-    if (_timer.isActive) _timer.cancel();
-    if (_waveTimer.isActive) _waveTimer.cancel();
+    _timer?.cancel(); // ✅ Usar ?. en lugar de .
+    _waveTimer?.cancel(); // ✅ Usar ?. en lugar de .
     setState(() {
       _isCountingDown = false;
       _countdownValue = 3;
@@ -147,8 +147,8 @@ class _VistaAlertaState extends State<VistaAlerta> {
 
   @override
   void dispose() {
-    if (_timer.isActive) _timer.cancel();
-    if (_waveTimer.isActive) _waveTimer.cancel();
+    _timer?.cancel(); // ✅ Usar ?. en lugar de .
+    _waveTimer?.cancel(); // ✅ Usar ?. en lugar de .
     super.dispose();
   }
 
