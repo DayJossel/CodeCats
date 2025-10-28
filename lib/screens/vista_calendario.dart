@@ -1,8 +1,9 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'dart:async';
 import '../main.dart'; // Importamos para usar los colores globales
-import 'vista_estadistica.dart'; 
+import 'vista_estadistica.dart';
 
 // --- MODELO DE DATOS ---
 enum RaceStatus { pendiente, hecha, noRealizada }
@@ -53,7 +54,8 @@ class _VistaCalendarioState extends State<VistaCalendario> {
   void _groupEvents() {
     _events = {};
     for (var race in _races) {
-      DateTime date = DateTime(race.dateTime.year, race.dateTime.month, race.dateTime.day);
+      DateTime date =
+          DateTime(race.dateTime.year, race.dateTime.month, race.dateTime.day);
       if (_events[date] == null) {
         _events[date] = [];
       }
@@ -66,11 +68,13 @@ class _VistaCalendarioState extends State<VistaCalendario> {
     return _events[date] ?? [];
   }
 
-  void _saveRace(String title, DateTime dateTime, RaceStatus status, {Race? existingRace}) {
+  void _saveRace(String title, DateTime dateTime, RaceStatus status,
+      {Race? existingRace}) {
     if (dateTime.isBefore(DateTime.now()) && existingRace == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('La carrera debe programarse en una fecha y hora futura.'),
+          content:
+              Text('La carrera debe programarse en una fecha y hora futura.'),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -101,12 +105,12 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       _groupEvents();
     });
   }
-  
+
   void _updateRaceStatus(Race race, RaceStatus newStatus) {
     setState(() {
       race.status = newStatus;
     });
-     ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Estado de la carrera actualizado.')),
     );
   }
@@ -118,9 +122,11 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       backgroundColor: Colors.transparent,
       builder: (context) {
         return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          padding:
+              EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
           child: _AddEditRaceSheet(
-            onSave: (title, dateTime, status) => _saveRace(title, dateTime, status, existingRace: race),
+            onSave: (title, dateTime, status) =>
+                _saveRace(title, dateTime, status, existingRace: race),
             race: race,
             selectedDay: selectedDay,
           ),
@@ -143,28 +149,29 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       body: Column(
         children: [
           _buildTableCalendar(),
-          
+
           // --- 2. BOTÓN NUEVO Y MÁS LLAMATIVO ---
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
             child: SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.bar_chart),
-                label: const Text('Consultar Estadística'),
+                label: const Text('Consultar Estadísticas'),
                 onPressed: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const VistaEstadistica()),
+                    MaterialPageRoute(
+                        builder: (context) => const VistaEstadistica()),
                   );
                 },
                 style: ElevatedButton.styleFrom(
-                   padding: const EdgeInsets.symmetric(vertical: 12),
-                   textStyle: const TextStyle(
-                     fontSize: 16,
-                     fontWeight: FontWeight.bold,
-                   )
-                ),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    textStyle: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    )),
               ),
             ),
           ),
@@ -172,23 +179,25 @@ class _VistaCalendarioState extends State<VistaCalendario> {
           const Divider(height: 1),
 
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
             child: Row(
               children: [
                 Text(
                   "Carreras del día",
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold
-                  ),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
           ),
-          
+
           Expanded(
             child: selectedDayEvents.isEmpty
-              ? _buildEmptyDay()
-              : _buildEventList(selectedDayEvents),
+                ? _buildEmptyDay()
+                : _buildEventList(selectedDayEvents),
           ),
         ],
       ),
@@ -204,7 +213,6 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
       eventLoader: _getEventsForDay,
       startingDayOfWeek: StartingDayOfWeek.monday,
-      
       calendarStyle: CalendarStyle(
         outsideDaysVisible: false,
         todayDecoration: BoxDecoration(
@@ -224,7 +232,6 @@ class _VistaCalendarioState extends State<VistaCalendario> {
         formatButtonVisible: false,
         titleCentered: true,
       ),
-
       onDaySelected: (selectedDay, focusedDay) {
         if (!isSameDay(_selectedDay, selectedDay)) {
           setState(() {
@@ -252,16 +259,15 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       itemBuilder: (context, index) {
         final race = events[index];
         return _RaceCard(
-          race: race,
-          onStatusChanged: (newStatus) => _updateRaceStatus(race, newStatus),
-          onEdit: () => _showRaceForm(race: race),
-          onDelete: () {
-             setState(() {
+            race: race,
+            onStatusChanged: (newStatus) => _updateRaceStatus(race, newStatus),
+            onEdit: () => _showRaceForm(race: race),
+            onDelete: () {
+              setState(() {
                 _races.removeWhere((r) => r.id == race.id);
                 _groupEvents();
+              });
             });
-          }
-        );
       },
     );
   }
@@ -292,7 +298,7 @@ class _RaceCard extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
   });
-  
+
   @override
   Widget build(BuildContext context) {
     final isPast = race.dateTime.isBefore(DateTime.now());
@@ -305,7 +311,7 @@ class _RaceCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 16.0),
         child: Column(
-           crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
@@ -315,37 +321,42 @@ class _RaceCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                       Text(
-                          race.title,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
+                      Text(
+                        race.title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
                         ),
-                        Text(
-                          _formatTime(TimeOfDay.fromDateTime(race.dateTime)),
-                          style: const TextStyle(color: Colors.grey, fontSize: 14),
-                        ),
+                      ),
+                      Text(
+                        _formatTime(TimeOfDay.fromDateTime(race.dateTime)),
+                        style:
+                            const TextStyle(color: Colors.grey, fontSize: 14),
+                      ),
                     ],
                   ),
                 ),
                 PopupMenuButton<String>(
                   onSelected: (value) {
-                    if (value == 'edit') onEdit();
-                    else if (value == 'delete') onDelete();
+                    if (value == 'edit') {
+                      onEdit();
+                    } else if (value == 'delete') {
+                      onDelete();
+                    }
                   },
                   itemBuilder: (ctx) => [
                     const PopupMenuItem(value: 'edit', child: Text('Editar')),
-                    const PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                    const PopupMenuItem(
+                        value: 'delete', child: Text('Eliminar')),
                   ],
                 ),
               ],
             ),
-             if (isPast && race.status == RaceStatus.pendiente) ...[
-                const Divider(height: 20),
-                _buildStatusSelector(),
-             ]
+            if (isPast && race.status == RaceStatus.pendiente) ...[
+              const Divider(height: 20),
+              _buildStatusSelector(),
+            ]
           ],
         ),
       ),
@@ -430,7 +441,7 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
       _selectedDate = widget.selectedDay;
     }
   }
-  
+
   Future<void> _pickDate() async {
     final date = await showDatePicker(
       context: context,
@@ -444,13 +455,60 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
   }
 
   Future<void> _pickTime() async {
-    final time = await showTimePicker(
+    TimeOfDay tempTime = _selectedTime ?? TimeOfDay.now();
+
+    await showModalBottomSheet(
       context: context,
-      initialTime: _selectedTime ?? TimeOfDay.now(),
+      backgroundColor: cardColor,
+      builder: (BuildContext builder) {
+        return SizedBox(
+          height: 300,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Cancelar'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedTime = tempTime;
+                        });
+                        Navigator.of(context).pop();
+                      },
+                      child: const Text('Guardar',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.time,
+                  initialDateTime: DateTime(
+                    DateTime.now().year,
+                    DateTime.now().month,
+                    DateTime.now().day,
+                    _selectedTime?.hour ?? TimeOfDay.now().hour,
+                    _selectedTime?.minute ?? TimeOfDay.now().minute,
+                  ),
+                  onDateTimeChanged: (DateTime newDateTime) {
+                    tempTime = TimeOfDay.fromDateTime(newDateTime);
+                  },
+                  use24hFormat: MediaQuery.of(context).alwaysUse24HourFormat,
+                  minuteInterval: 1,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
-    if (time != null) {
-      setState(() => _selectedTime = time);
-    }
   }
 
   void _submit() {
@@ -494,9 +552,10 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
           const SizedBox(height: 24),
           TextField(
             controller: _titleController,
-            decoration: const InputDecoration(labelText: 'Título de la carrera'),
-             style: const TextStyle(color: Colors.white),
-              cursorColor: primaryColor,
+            decoration:
+                const InputDecoration(labelText: 'Título de la carrera'),
+            style: const TextStyle(color: Colors.white),
+            cursorColor: primaryColor,
           ),
           const SizedBox(height: 16),
           DropdownButtonFormField<RaceStatus>(
@@ -531,7 +590,7 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
                       _selectedDate == null
                           ? 'Seleccionar'
                           : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}',
-                       style: const TextStyle(color: Colors.white),
+                      style: const TextStyle(color: Colors.white),
                     ),
                   ),
                 ),
@@ -543,8 +602,10 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
                   child: InputDecorator(
                     decoration: const InputDecoration(labelText: 'Hora'),
                     child: Text(
-                      _selectedTime == null ? 'Seleccionar' : _selectedTime!.format(context),
-                       style: const TextStyle(color: Colors.white),
+                      _selectedTime == null
+                          ? 'Seleccionar'
+                          : _selectedTime!.format(context),
+                      style: const TextStyle(color: Colors.white),
                     ),
                   ),
                 ),
