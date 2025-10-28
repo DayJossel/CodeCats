@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../main.dart';
+import 'vista_historial.dart'; // Importamos la vista de historial
 import 'vista_ubicacion.dart';
 import '../usecases/emergency_alert_uc.dart';
 
@@ -16,9 +17,9 @@ class _VistaAlertaState extends State<VistaAlerta> {
   String? _statusMsg;
   bool _isCountingDown = false;
   int _countdownValue = 3;
-  Timer? _timer; // ✅ Cambiado a nullable
+  Timer? _timer;
   double _waveAnimation = 0.0;
-  Timer? _waveTimer; // ✅ Cambiado a nullable
+  Timer? _waveTimer;
 
   void _startCountdown() {
     setState(() {
@@ -27,14 +28,13 @@ class _VistaAlertaState extends State<VistaAlerta> {
       _waveAnimation = 0.0;
     });
 
-    // ✅ Ahora se inicializan correctamente
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         if (_countdownValue > 1) {
           _countdownValue--;
         } else {
-          _timer?.cancel(); // ✅ Usar ?. en lugar de .
-          _waveTimer?.cancel(); // ✅ Usar ?. en lugar de .
+          _timer?.cancel();
+          _waveTimer?.cancel();
           _isCountingDown = false;
           _showSosConfirmationDialog(context);
         }
@@ -53,7 +53,7 @@ class _VistaAlertaState extends State<VistaAlerta> {
     setState(() { _sending = true; _statusMsg = null; });
 
     try {
-      final res = await EmergencyAlertUC.trigger(); // usa TODOS los contactos
+      final res = await EmergencyAlertUC.trigger();
       final okTotal = res.fallidos.isEmpty;
       final base = okTotal
           ? 'Alerta enviada a todos los contactos.'
@@ -62,7 +62,6 @@ class _VistaAlertaState extends State<VistaAlerta> {
       if (!mounted) return;
       setState(() => _statusMsg = base + hid);
 
-      // Snack verde si todo OK, rojo si hubo fallos
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(okTotal
@@ -90,8 +89,8 @@ class _VistaAlertaState extends State<VistaAlerta> {
   }
 
   void _cancelCountdown() {
-    _timer?.cancel(); // ✅ Usar ?. en lugar de .
-    _waveTimer?.cancel(); // ✅ Usar ?. en lugar de .
+    _timer?.cancel();
+    _waveTimer?.cancel();
     setState(() {
       _isCountingDown = false;
       _countdownValue = 3;
@@ -99,7 +98,6 @@ class _VistaAlertaState extends State<VistaAlerta> {
     });
   }
 
-  // ✅ Diálogo de confirmación con resultado real
   void _showSosConfirmationDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -133,8 +131,8 @@ class _VistaAlertaState extends State<VistaAlerta> {
                   ),
                   child: const Text('Enviar Alerta'),
                   onPressed: () async {
-                    Navigator.of(context).pop(); // Cierra el diálogo
-                    await _sendEmergency();      // <-- aquí disparamos la alerta real
+                    Navigator.of(context).pop();
+                    await _sendEmergency();
                   },
                 ),
               ],
@@ -147,8 +145,8 @@ class _VistaAlertaState extends State<VistaAlerta> {
 
   @override
   void dispose() {
-    _timer?.cancel(); // ✅ Usar ?. en lugar de .
-    _waveTimer?.cancel(); // ✅ Usar ?. en lugar de .
+    _timer?.cancel();
+    _waveTimer?.cancel();
     super.dispose();
   }
 
@@ -247,6 +245,7 @@ class _VistaAlertaState extends State<VistaAlerta> {
                 ),
               ),
               const Spacer(),
+              // Botón de Compartir Ubicación
               GestureDetector(
                 onTap: () {
                   Navigator.push(
@@ -301,6 +300,60 @@ class _VistaAlertaState extends State<VistaAlerta> {
                 ),
               ),
               const SizedBox(height: 15),
+              // NUEVO BOTÓN: Historial de Alertas
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const VistaHistorial(),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  height: 80,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: cardColor,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.history, color: primaryColor, size: 30),
+                      const SizedBox(width: 15),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text(
+                              'Historial de Alertas',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Text(
+                              'Consulta tus alertas anteriores',
+                              style: TextStyle(
+                                color: Colors.grey[400],
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(
+                        Icons.arrow_forward_ios,
+                        color: Colors.grey[400],
+                        size: 16,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               const Spacer(),
             ],
           ),

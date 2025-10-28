@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 
 import 'core/session_repository.dart';
 
-import 'screens/login.dart';          // AuthScreen
-import 'screens/profile.dart';        // ProfileScreen (tab)
+import 'screens/login.dart';
+import 'screens/profile.dart';
 import 'screens/vista_alerta.dart';
 import 'screens/vista_contactos.dart';
-import 'screens/vista_historial.dart';
+// import 'screens/vista_historial.dart'; // Ya no se usa en la barra de navegación
 import 'screens/vista_espacios.dart';
+import 'screens/vista_calendario.dart'; // <-- 1. IMPORTAMOS LA NUEVA VISTA
 
 // Colores principales de la aplicación para fácil acceso
 const Color primaryColor = Color(0xFFFFC700); // Amarillo/Dorado
@@ -57,13 +58,11 @@ class RunnerApp extends StatelessWidget {
           bodyMedium: TextStyle(color: Colors.grey),
         ),
       ),
-      home: const _AuthGate(), // 👈 IMPORTANTE: ya no AuthScreen directo
+      home: const _AuthGate(),
     );
   }
 }
 
-/// Gate que decide si hay sesión persistida.
-/// Si hay (id y contraseña), entra directo a MainScreen; si no, a AuthScreen.
 class _AuthGate extends StatefulWidget {
   const _AuthGate({super.key});
   @override
@@ -103,11 +102,12 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
 
+  // --- 2. ACTUALIZAMOS LA LISTA DE PANTALLAS ---
   static final List<Widget> _widgetOptions = <Widget>[
     const VistaAlerta(),
     const VistaEspacios(),
     const VistaContactos(),
-    const VistaHistorial(),
+    const VistaCalendario(), // Reemplazamos VistaHistorial por VistaCalendario
     const ProfileScreen(),
   ];
 
@@ -122,11 +122,12 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       body: Center(child: _widgetOptions.elementAt(_selectedIndex)),
       bottomNavigationBar: BottomNavigationBar(
+        // --- 3. ACTUALIZAMOS LOS ÍTEMS DE LA BARRA ---
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
-          BottomNavigationBarItem(icon: Icon(Icons.route), label: 'Espacios para correr'),
+          BottomNavigationBarItem(icon: Icon(Icons.route), label: 'Espacios'),
           BottomNavigationBarItem(icon: Icon(Icons.people_outline), label: 'Contactos'),
-          BottomNavigationBarItem(icon: Icon(Icons.notifications_none), label: 'Alertas'),
+          BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Calendario'), // Ítem modificado
           BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
         ],
         currentIndex: _selectedIndex,
