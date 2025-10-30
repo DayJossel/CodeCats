@@ -1,9 +1,11 @@
+// lib/screens/vista_calendario.dart
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'dart:async';
-import '../main.dart'; // Importamos para usar los colores globales
-import 'vista_estadistica.dart';
+
+import '../main.dart'; // colores
+import '../core/notification_service.dart';
 
 // --- MODELO DE DATOS ---
 enum RaceStatus { pendiente, hecha, noRealizada }
@@ -54,62 +56,115 @@ class _VistaCalendarioState extends State<VistaCalendario> {
   void _groupEvents() {
     _events = {};
     for (var race in _races) {
-      DateTime date =
-          DateTime(race.dateTime.year, race.dateTime.month, race.dateTime.day);
-      if (_events[date] == null) {
-        _events[date] = [];
-      }
-      _events[date]!.add(race);
+      final date = DateTime(race.dateTime.year, race.dateTime.month, race.dateTime.day);
+      _events.putIfAbsent(date, () => []).add(race);
     }
   }
 
   List<Race> _getEventsForDay(DateTime day) {
-    DateTime date = DateTime(day.year, day.month, day.day);
+    final date = DateTime(day.year, day.month, day.day);
     return _events[date] ?? [];
   }
 
-  void _saveRace(String title, DateTime dateTime, RaceStatus status,
-      {Race? existingRace}) {
-    if (dateTime.isBefore(DateTime.now()) && existingRace == null) {
+  Future<void> _saveRace(String title, DateTime dateTime, RaceStatus status,
+      {Race? existingRace}) async {
+    // Validación CU-5: fecha/hora debe ser futura también al editar
+    if (dateTime.isBefore(DateTime.now())) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content:
-              Text('La carrera debe programarse en una fecha y hora futura.'),
+          content: Text('La carrera debe programarse en una fecha y hora futura.'),
           backgroundColor: Colors.redAccent,
         ),
       );
       return;
     }
 
-    setState(() {
-      if (existingRace != null) {
-        existingRace.title = title;
-        existingRace.dateTime = dateTime;
-        existingRace.status = status;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Carrera actualizada con éxito.')),
-        );
+    setState(() {});
+
+    if (existingRace != null) {
+      // Si cambió fecha/hora o título, reprogramamos recordatorio
+      final changedDate = existingRace.dateTime != dateTime;
+      final changedTitle = existingRace.title != title;
+
+      existingRace.title = title;
+      existingRace.dateTime = dateTime;
+      existingRace.status = status;
+
+      if (status != RaceStatus.pendiente) {
+        // Si el usuario marca Hecha/No Realizada al editar, se cancela recordatorio.
+        await NotificationService.instance.cancelRaceReminder(existingRace.id);
       } else {
-        final newRace = Race(
-          id: DateTime.now().millisecondsSinceEpoch,
-          title: title,
-          dateTime: dateTime,
-          status: status,
+        // Estado pendiente: reprograma recordatorio si cambió algo relevante
+        if (changedDate || changedTitle) {
+          await NotificationService.instance.cancelRaceReminder(existingRace.id);
+          final ok = await NotificationService.instance.scheduleRaceReminder(
+            raceId: existingRace.id,
+            title: existingRace.title,
+            raceDateTimeLocal: existingRace.dateTime,
+          );
+          if (!ok) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Carrera actualizada; el recordatorio no pudo programarse (muy próximo).'),
+              ),
+            );
+          }
+        }
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Carrera actualizada con éxito.')),
+      );
+    } else {
+      final newRace = Race(
+        id: DateTime.now().millisecondsSinceEpoch,
+        title: title,
+        dateTime: dateTime,
+        status: status,
+      );
+      _races.add(newRace);
+
+      // Programa recordatorio 2 h antes (CU-5)
+      if (status == RaceStatus.pendiente) {
+        final ok = await NotificationService.instance.scheduleRaceReminder(
+          raceId: newRace.id,
+          title: newRace.title,
+          raceDateTimeLocal: newRace.dateTime,
         );
-        _races.add(newRace);
+        if (!ok) {
+          // 8A: Si falla programar recordatorio, se guarda la carrera y se informa
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Carrera registrada, pero no se pudo crear el recordatorio (muy próximo).'),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Carrera registrada y recordatorio programado.')),
+          );
+        }
+      } else {
+        // Por diseño, nuevas carreras empiezan como Pendiente, pero si cambiaste el UI, lo cubrimos:
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Carrera registrada exitosamente.')),
+          const SnackBar(content: Text('Carrera registrada.')),
         );
       }
-      _races.sort((a, b) => a.dateTime.compareTo(b.dateTime));
-      _groupEvents();
-    });
+    }
+
+    _races.sort((a, b) => a.dateTime.compareTo(b.dateTime));
+    _groupEvents();
+    setState(() {});
   }
 
-  void _updateRaceStatus(Race race, RaceStatus newStatus) {
+  Future<void> _updateRaceStatus(Race race, RaceStatus newStatus) async {
     setState(() {
       race.status = newStatus;
     });
+
+    // 7A: Si ya no está pendiente, cancelamos recordatorio pendiente
+    if (newStatus != RaceStatus.pendiente) {
+      await NotificationService.instance.cancelRaceReminder(race.id);
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Estado de la carrera actualizado.')),
     );
@@ -122,8 +177,7 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       backgroundColor: Colors.transparent,
       builder: (context) {
         return Padding(
-          padding:
-              EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
           child: _AddEditRaceSheet(
             onSave: (title, dateTime, status) =>
                 _saveRace(title, dateTime, status, existingRace: race),
@@ -144,43 +198,33 @@ class _VistaCalendarioState extends State<VistaCalendario> {
         title: const Text('Calendario de Carreras'),
         backgroundColor: backgroundColor,
         elevation: 0,
-        // --- 1. SE ELIMINA EL BOTÓN ANTERIOR DE LA APPBAR ---
       ),
       body: Column(
         children: [
           _buildTableCalendar(),
-
-          // --- 2. BOTÓN NUEVO Y MÁS LLAMATIVO ---
           Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
             child: SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.bar_chart),
                 label: const Text('Consultar Estadísticas'),
                 onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const VistaEstadistica()),
+                  // TODO: Navegar a VistaEstadistica si la tienes
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Demo: estadísticas próximas.')),
                   );
                 },
                 style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    textStyle: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    )),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ),
-
           const Divider(height: 1),
-
           Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
             child: Row(
               children: [
                 Text(
@@ -193,13 +237,18 @@ class _VistaCalendarioState extends State<VistaCalendario> {
               ],
             ),
           ),
-
           Expanded(
             child: selectedDayEvents.isEmpty
                 ? _buildEmptyDay()
                 : _buildEventList(selectedDayEvents),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'fab_add_race',
+        onPressed: () => _showRaceForm(selectedDay: _selectedDay),
+        icon: const Icon(Icons.add),
+        label: const Text('Nueva carrera'),
       ),
     );
   }
@@ -259,15 +308,18 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       itemBuilder: (context, index) {
         final race = events[index];
         return _RaceCard(
-            race: race,
-            onStatusChanged: (newStatus) => _updateRaceStatus(race, newStatus),
-            onEdit: () => _showRaceForm(race: race),
-            onDelete: () {
-              setState(() {
-                _races.removeWhere((r) => r.id == race.id);
-                _groupEvents();
-              });
+          race: race,
+          onStatusChanged: (newStatus) => _updateRaceStatus(race, newStatus),
+          onEdit: () => _showRaceForm(race: race),
+          onDelete: () async {
+            // Cancelamos recordatorio al borrar
+            await NotificationService.instance.cancelRaceReminder(race.id);
+            setState(() {
+              _races.removeWhere((r) => r.id == race.id);
+              _groupEvents();
             });
+          },
+        );
       },
     );
   }
@@ -277,7 +329,7 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24.0),
         child: Text(
-          "No hay carreras programadas.\nToca un día para agregar una.",
+          "No hay carreras programadas.\nToca un día o el botón + para agregar una.",
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.grey[400]),
         ),
@@ -331,8 +383,7 @@ class _RaceCard extends StatelessWidget {
                       ),
                       Text(
                         _formatTime(TimeOfDay.fromDateTime(race.dateTime)),
-                        style:
-                            const TextStyle(color: Colors.grey, fontSize: 14),
+                        style: const TextStyle(color: Colors.grey, fontSize: 14),
                       ),
                     ],
                   ),
@@ -345,10 +396,9 @@ class _RaceCard extends StatelessWidget {
                       onDelete();
                     }
                   },
-                  itemBuilder: (ctx) => [
-                    const PopupMenuItem(value: 'edit', child: Text('Editar')),
-                    const PopupMenuItem(
-                        value: 'delete', child: Text('Eliminar')),
+                  itemBuilder: (ctx) => const [
+                    PopupMenuItem(value: 'edit', child: Text('Editar')),
+                    PopupMenuItem(value: 'delete', child: Text('Eliminar')),
                   ],
                 ),
               ],
@@ -552,8 +602,7 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
           const SizedBox(height: 24),
           TextField(
             controller: _titleController,
-            decoration:
-                const InputDecoration(labelText: 'Título de la carrera'),
+            decoration: const InputDecoration(labelText: 'Título de la carrera'),
             style: const TextStyle(color: Colors.white),
             cursorColor: primaryColor,
           ),
@@ -562,9 +611,7 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
             value: _selectedStatus,
             onChanged: (RaceStatus? newValue) {
               if (newValue != null) {
-                setState(() {
-                  _selectedStatus = newValue;
-                });
+                setState(() => _selectedStatus = newValue);
               }
             },
             items: RaceStatus.values.map((RaceStatus status) {
@@ -573,9 +620,7 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
                 child: Text(_statusToString(status)),
               );
             }).toList(),
-            decoration: const InputDecoration(
-              labelText: 'Estado',
-            ),
+            decoration: const InputDecoration(labelText: 'Estado'),
             dropdownColor: cardColor,
           ),
           const SizedBox(height: 16),

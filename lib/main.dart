@@ -1,22 +1,31 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
 
 import 'core/session_repository.dart';
+import 'core/notification_service.dart';
 
 import 'screens/login.dart';
 import 'screens/profile.dart';
 import 'screens/vista_alerta.dart';
 import 'screens/vista_contactos.dart';
-// import 'screens/vista_historial.dart'; // Ya no se usa en la barra de navegación
 import 'screens/vista_espacios.dart';
-import 'screens/vista_calendario.dart'; // <-- 1. IMPORTAMOS LA NUEVA VISTA
+import 'screens/vista_calendario.dart';
 
-// Colores principales de la aplicación para fácil acceso
-const Color primaryColor = Color(0xFFFFC700); // Amarillo/Dorado
-const Color accentColor = Color(0xFFFE526E);  // Rojo/Rosa SOS
+// Colores principales de la aplicación
+const Color primaryColor = Color(0xFFFFC700);  // Amarillo/Dorado
+const Color accentColor = Color(0xFFFE526E);   // Rojo/Rosa SOS
 const Color backgroundColor = Color(0xFF121212); // Fondo oscuro
-const Color cardColor = Color(0xFF1E1E1E);    // Color de tarjetas
+const Color cardColor = Color(0xFF1E1E1E);     // Color de tarjetas
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicializa el servicio (plugin, canal, etc.)
+  await NotificationService.instance.init();
+
+  // Android 13+ / iOS: solicita permiso de notificaciones
+  await NotificationService.instance.requestNotificationsPermission();
+
   runApp(const RunnerApp());
 }
 
@@ -35,10 +44,8 @@ class RunnerApp extends StatelessWidget {
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             foregroundColor: Colors.black,
-            backgroundColor: primaryColor, // texto negro, fondo amarillo
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            backgroundColor: primaryColor,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
         ),
@@ -50,10 +57,7 @@ class RunnerApp extends StatelessWidget {
           showUnselectedLabels: true,
         ),
         textTheme: const TextTheme(
-          headlineSmall: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
+          headlineSmall: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
           bodyLarge: TextStyle(color: Colors.white),
           bodyMedium: TextStyle(color: Colors.grey),
         ),
@@ -102,19 +106,16 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
 
-  // --- 2. ACTUALIZAMOS LA LISTA DE PANTALLAS ---
   static final List<Widget> _widgetOptions = <Widget>[
     const VistaAlerta(),
     const VistaEspacios(),
     const VistaContactos(),
-    const VistaCalendario(), // Reemplazamos VistaHistorial por VistaCalendario
+    const VistaCalendario(),
     const ProfileScreen(),
   ];
 
   void _onItemTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
+    setState(() => _selectedIndex = index);
   }
 
   @override
@@ -122,12 +123,11 @@ class _MainScreenState extends State<MainScreen> {
     return Scaffold(
       body: Center(child: _widgetOptions.elementAt(_selectedIndex)),
       bottomNavigationBar: BottomNavigationBar(
-        // --- 3. ACTUALIZAMOS LOS ÍTEMS DE LA BARRA ---
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
           BottomNavigationBarItem(icon: Icon(Icons.route), label: 'Espacios'),
           BottomNavigationBarItem(icon: Icon(Icons.people_outline), label: 'Contactos'),
-          BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Calendario'), // Ítem modificado
+          BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Calendario'),
           BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
         ],
         currentIndex: _selectedIndex,
