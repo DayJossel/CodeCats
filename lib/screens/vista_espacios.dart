@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
+
 import '../core/session_repository.dart';
 import '../main.dart';
 
@@ -31,33 +32,34 @@ class RunningSpace {
 
   RunningSpace({
     required this.title,
+    required this.coordinates,
     this.link,
     this.espacioId,
     this.corredorId,
     this.esInicial = false,
     this.imagePath = 'assets/placeholder.jpg',
     this.mapImagePath = 'assets/map.png',
-    String? coordinates,
     this.safety = SpaceSafety.none,
     List<String>? notes,
-  })  : coordinates = coordinates ??
-            (link == null || link.isEmpty
-                ? 'Coordenadas no disponibles'
-                : 'Link: $link'),
-        notes = notes ?? [];
+  }) : notes = notes ?? [];
 
   // Factory desde JSON del API
   factory RunningSpace.fromJson(Map<String, dynamic> j) {
     final link = (j['enlaceUbicacion'] as String?)?.trim();
+    final parsed = _parseLatLngFromLinkOrText(link ?? '');
+    final coordsText = (parsed != null)
+        ? 'Coordenadas: ${parsed.$1}, ${parsed.$2}'
+        : (link == null || link.isEmpty)
+            ? 'Coordenadas no disponibles'
+            : 'Link: $link';
+
     return RunningSpace(
       espacioId: (j['espacio_id'] as num?)?.toInt(),
       corredorId: (j['corredor_id'] as num?)?.toInt(),
       esInicial: (j['es_inicial'] as bool?) ?? false,
       title: (j['nombreEspacio'] as String?)?.trim() ?? 'Sin nombre',
-      link: link?.isEmpty == true ? null : link,
-      coordinates: (link == null || link.isEmpty)
-          ? 'Coordenadas no disponibles'
-          : 'Link: $link',
+      link: (link?.isEmpty == true) ? null : link,
+      coordinates: coordsText,
     );
   }
 
@@ -69,6 +71,156 @@ class RunningSpace {
       };
 }
 
+// ====== HELPERS: validación y extracción de lat,lng desde links/texto ======
+bool _isLikelyUrl(String s) => s.startsWith('http://') || s.startsWith('https://');
+
+/// Devuelve (lat,lng) si encuentra coordenadas en:
+/// - ?q=lat,lng
+/// - @lat,lng
+/// - !3dLAT!4dLNG
+/// - texto "lat,lng" suelto
+/// Si no hay, devuelve null.
+(String, String)? _parseLatLngFromLinkOrText(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) return null;
+
+  // A) "lat,lng" plano
+  final plain = RegExp(r'^\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$');
+  final mPlain = plain.firstMatch(text);
+  if (mPlain != null) return (mPlain.group(1)!, mPlain.group(2)!);
+
+  // B) geo:lat,lng
+  final geo = RegExp(r'^geo:\s*(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)');
+  final mGeo = geo.firstMatch(text);
+  if (mGeo != null) return (mGeo.group(1)!, mGeo.group(2)!);
+
+  // C) Si es URL, intentamos varios patrones
+  if (_isLikelyUrl(text)) {
+    final uri = Uri.tryParse(text);
+
+    // ?q=lat,lng
+    final q = uri?.queryParameters['q'];
+    if (q != null) {
+      final mq = plain.firstMatch(q);
+      if (mq != null) return (mq.group(1)!, mq.group(2)!);
+    }
+
+    // ?ll=lat,lng (también lo usa Google)
+    final ll = uri?.queryParameters['ll'];
+    if (ll != null) {
+      final mll = plain.firstMatch(ll);
+      if (mll != null) return (mll.group(1)!, mll.group(2)!);
+    }
+
+    // search/?api=1&query=lat,lng
+    final query = uri?.queryParameters['query'];
+    if (query != null) {
+      final mQuery = plain.firstMatch(query);
+      if (mQuery != null) return (mQuery.group(1)!, mQuery.group(2)!);
+    }
+
+    final s = text;
+
+    // @lat,lng
+    final at = RegExp(r'@(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)');
+    final mAt = at.firstMatch(s);
+    if (mAt != null) return (mAt.group(1)!, mAt.group(2)!);
+
+    // !3dLAT!4dLNG
+    final bang = RegExp(r'!3d(-?\d{1,3}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)');
+    final mBang = bang.firstMatch(s);
+    if (mBang != null) return (mBang.group(1)!, mBang.group(2)!);
+  }
+
+  return null;
+}
+
+String _canonicalGoogleMapsUrlFromLatLng(String lat, String lng) =>
+    'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
+
+Future<(String, String)?> _resolveLatLngFromAnyLink(String raw) async {
+  // 1) ¿ya hay lat,lng directo?
+  final direct = _parseLatLngFromLinkOrText(raw);
+  if (direct != null) return direct;
+
+  // 2) Si no parece URL, no se puede resolver
+  if (!_isLikelyUrl(raw)) return null;
+
+  final client = http.Client();
+  try {
+    Uri current = Uri.parse(raw);
+
+    for (int i = 0; i < 6; i++) {
+      final req = http.Request('GET', current);
+      // No sigas redirects automáticamente: queremos leer Location
+      req.followRedirects = false;
+      req.headers['User-Agent'] = 'Mozilla/5.0 (Flutter; Dart)';
+
+      final streamed = await client.send(req);
+      final status = streamed.statusCode;
+
+      // a) Intenta parsear coords de la URL actual
+      final parsedHere = _parseLatLngFromLinkOrText(current.toString());
+      if (parsedHere != null) return parsedHere;
+
+      // b) Si es redirección, mira el Location
+      if (status >= 300 && status < 400) {
+        final loc = streamed.headers['location'];
+        if (loc == null || loc.isEmpty) break;
+
+        // Puede venir algo como .../?link=https%3A%2F%2Fwww.google.com%2Fmaps%2F...
+        Uri next = Uri.parse(Uri.decodeFull(loc));
+
+        // Si trae ?link=, úsalo (suele ser la URL grande con coords o @lat,lng)
+        final inner = next.queryParameters['link'];
+        if (inner != null && inner.isNotEmpty) {
+          next = Uri.parse(Uri.decodeFull(inner));
+        }
+
+        // Próximo salto
+        current = next;
+        // intentamos en el siguiente loop
+        continue;
+      }
+
+      // c) No hay redirect: intentemos body por <meta http-equiv="refresh" ...>
+      final body = await streamed.stream.bytesToString();
+      final meta = RegExp(
+        r"""http-equiv=["']refresh["'][^>]*content=["'][^;]*;\s*url=([^"']+)["']""",
+        caseSensitive: false,
+      );
+      final m = meta.firstMatch(body);
+      if (m != null) {
+        final redirected = Uri.parse(Uri.decodeFull(m.group(1)!));
+        final parsedMeta = _parseLatLngFromLinkOrText(redirected.toString());
+        if (parsedMeta != null) return parsedMeta;
+
+        // Si ese meta trae link=, también lo abrimos
+        final inner2 = redirected.queryParameters['link'];
+        if (inner2 != null && inner2.isNotEmpty) {
+          final innerUri = Uri.parse(Uri.decodeFull(inner2));
+          final parsedInner = _parseLatLngFromLinkOrText(innerUri.toString());
+          if (parsedInner != null) return parsedInner;
+
+          // Reintenta como "siguiente" URL
+          current = innerUri;
+          continue;
+        }
+      }
+
+      // Si llegamos aquí y nada, paramos.
+      break;
+    }
+  } catch (_) {
+    // silencio: devolvemos null abajo
+  } finally {
+    client.close();
+  }
+
+  return null;
+}
+
+
 class VistaEspacios extends StatefulWidget {
   const VistaEspacios({super.key});
 
@@ -77,7 +229,51 @@ class VistaEspacios extends StatefulWidget {
 }
 
 class _VistaEspaciosState extends State<VistaEspacios> {
-  final List<RunningSpace> _spaces = [];
+  // ===== 5 ESPACIOS POR DEFECTO (los que ya tenías) =====
+  final List<RunningSpace> _defaultSpaces = [
+    RunningSpace(
+      imagePath: 'assets/parque_la_encantada.jpg',
+      title: 'Parque La Encantada',
+      mapImagePath: 'assets/map.png',
+      coordinates: 'Coordenadas: 22.7597523, -102.5788378',
+      link: null,
+    ),
+    RunningSpace(
+      imagePath: 'assets/parque_sierra_de_alica.jpg',
+      title: 'Parque Sierra de Álica',
+      mapImagePath: 'assets/map.png',
+      coordinates: 'Coordenadas: 22.7696141, -102.5767151',
+      link: null,
+      safety: SpaceSafety.safe,
+    ),
+    RunningSpace(
+      imagePath: 'assets/La_purisima.jpg',
+      title: 'La Purísima',
+      mapImagePath: 'assets/map.png',
+      coordinates: 'Coordenadas: 22.7496541, -102.5238082',
+      link: null,
+      safety: SpaceSafety.partiallySafe,
+    ),
+    RunningSpace(
+      imagePath: 'assets/ramon.jpg',
+      title: 'Parque Ramón López Velarde',
+      mapImagePath: 'assets/map.png',
+      coordinates: 'Coordenadas: 22.7582581, -102.5417730',
+      link: null,
+      safety: SpaceSafety.unsafe,
+    ),
+    RunningSpace(
+      imagePath: 'assets/plata.jpg',
+      title: 'Parque Arroyo de la Plata',
+      mapImagePath: 'assets/map.png',
+      coordinates: 'Coordenadas: 22.7569926, -102.5387186',
+      link: null,
+    ),
+  ];
+
+  // ===== Espacios del backend (usuario) =====
+  final List<RunningSpace> _apiSpaces = [];
+
   bool _loading = false;
 
   @override
@@ -87,7 +283,6 @@ class _VistaEspaciosState extends State<VistaEspacios> {
   }
 
   Future<Map<String, String>> _authHeaders() async {
-    // Ajusta estos métodos a los que tengas en tu SessionRepository
     final cid = await SessionRepository.corredorId();
     final pass = await SessionRepository.contrasenia();
 
@@ -114,7 +309,7 @@ class _VistaEspaciosState extends State<VistaEspacios> {
         final items =
             data.map((e) => RunningSpace.fromJson(e as Map<String, dynamic>)).toList();
         setState(() {
-          _spaces
+          _apiSpaces
             ..clear()
             ..addAll(items);
         });
@@ -129,89 +324,150 @@ class _VistaEspaciosState extends State<VistaEspacios> {
     }
   }
 
-  bool _isValidLink(String? link) {
-    if (link == null || link.trim().isEmpty) return true; // opcional
-    final l = link.trim();
-    // Aceptamos http/https y/o links de Google Maps simples
-    final uriOk = l.startsWith('http://') || l.startsWith('https://');
-    // O también lat,lng (números) como texto suelto
-    final latLngRe = RegExp(r'^\s*-?\d{1,3}\.\d+,\s*-?\d{1,3}\.\d+\s*$');
-    return uriOk || latLngRe.hasMatch(l);
-  }
-
   Future<void> _addSpace(String name, String? link) async {
-    // Validaciones del CU (6A y 7A)
     if (name.trim().isEmpty) {
       _showSnack('El nombre es obligatorio.', isError: true);
       return;
     }
-    if (!_isValidLink(link)) {
-      _showSnack('El enlace no parece válido. Corrígelo, por favor.', isError: true);
-      return;
+
+    // --- Validación estricta de enlace (si viene) ---
+    String? linkTrim = link?.trim();
+    (String, String)? coordsFromLink;
+
+    if (linkTrim != null && linkTrim.isNotEmpty) {
+      // 1) "lat,lng" plano → directo
+      final plain = _parseLatLngFromLinkOrText(linkTrim);
+      if (plain != null) {
+        coordsFromLink = plain;
+      } else {
+        // 2) URL (maps.app.goo.gl / google.com/maps / etc.) → resolver
+        final conn = await Connectivity().checkConnectivity();
+        if (conn == ConnectivityResult.none) {
+          _showSnack(
+            'No hay internet para validar el enlace. '
+            'Usa formato "lat,lng" o intenta de nuevo con conexión.',
+            isError: true,
+          );
+          return;
+        }
+
+        coordsFromLink = await _resolveLatLngFromAnyLink(linkTrim);
+        if (coordsFromLink == null) {
+          _showSnack(
+            'El enlace no corresponde a una ubicación válida. '
+            'Pega un link de Google Maps que apunte a una ubicación o usa "lat,lng".',
+            isError: true,
+          );
+          return;
+        }
+      }
     }
 
     try {
       final headers = await _authHeaders();
       final url = Uri.parse('$_baseUrl/espacios');
+
+      // ⬇️⬇️ ESTE ES EL CAMBIO CLAVE: canoniza si tienes coords
+      final enlaceParaGuardar = (coordsFromLink != null)
+          ? _canonicalGoogleMapsUrlFromLatLng(coordsFromLink.$1, coordsFromLink.$2)
+          : (linkTrim ?? '');
+
       final body = jsonEncode({
         'nombreEspacio': name.trim(),
-        'enlaceUbicacion': (link ?? '').trim(),
+        'enlaceUbicacion': enlaceParaGuardar, // <-- aquí usamos la URL canonical
         'es_inicial': false,
       });
 
       final resp = await http.post(url, headers: headers, body: body);
       if (resp.statusCode == 200) {
         final j = jsonDecode(resp.body) as Map<String, dynamic>;
-        final created = RunningSpace.fromJson(j);
+
+        // Mostrar coords en la tarjeta
+        final coordsText = (coordsFromLink != null)
+            ? 'Coordenadas: ${coordsFromLink.$1}, ${coordsFromLink.$2}'
+            : (() {
+                final parsedAfter = _parseLatLngFromLinkOrText(
+                    j['enlaceUbicacion'] as String? ?? '');
+                if (parsedAfter != null) {
+                  return 'Coordenadas: ${parsedAfter.$1}, ${parsedAfter.$2}';
+                }
+                return 'Coordenadas no disponibles';
+              })();
+
+        final created = RunningSpace(
+          espacioId: (j['espacio_id'] as num?)?.toInt(),
+          corredorId: (j['corredor_id'] as num?)?.toInt(),
+          esInicial: (j['es_inicial'] as bool?) ?? false,
+          title: (j['nombreEspacio'] as String?)?.trim() ?? 'Sin nombre',
+          link: ((j['enlaceUbicacion'] as String?)?.trim().isEmpty ?? true)
+              ? null
+              : (j['enlaceUbicacion'] as String).trim(),
+          coordinates: coordsText,
+        );
 
         setState(() {
-          _spaces.insert(0, created);
+          _apiSpaces.insert(0, created); // mantiene tus 5 defaults arriba
         });
 
         _showSnack('Espacio agregado.');
       } else if (resp.statusCode == 422) {
         _showSnack('Datos inválidos (422). Revisa nombre y enlace.', isError: true);
       } else {
-        _showSnack('No se pudo crear el espacio (HTTP ${resp.statusCode}).',
-            isError: true);
+        _showSnack(
+          'No se pudo crear el espacio (HTTP ${resp.statusCode}).',
+          isError: true,
+        );
       }
     } catch (e) {
       _showSnack('Error al crear espacio: $e', isError: true);
     }
   }
 
+
+
   Future<void> _openOnMap(RunningSpace space) async {
-    // 7A Falta de conectividad
+    // Conectividad (el mapa en línea lo requiere)
     final conn = await Connectivity().checkConnectivity();
     if (conn == ConnectivityResult.none) {
       _showSnack('No hay conexión a internet para mostrar el mapa.', isError: true);
       return;
     }
 
-    // 3A Selección inválida (sin ubicación utilizable)
-    final hasAnyLocation =
-        (space.link != null && space.link!.trim().isNotEmpty) ||
-            (space.coordinates.toLowerCase().contains('coordenadas'));
+    String routeCoords = space.coordinates;
 
-    if (!hasAnyLocation) {
-      _showSnack('Este espacio no tiene una ubicación válida.', isError: true);
-      return;
+    // a) Si hay link, intentamos resolverlo a lat,lng
+    if ((space.link ?? '').isNotEmpty) {
+      final resolved = await _resolveLatLngFromAnyLink(space.link!.trim());
+      if (resolved != null) {
+        routeCoords = 'Coordenadas: ${resolved.$1}, ${resolved.$2}';
+      } else {
+        // b) Si el link no trae coords, intentamos extraer de "Coordenadas: x, y" si existen
+        final fromText = _parseLatLngFromLinkOrText(space.coordinates.replaceFirst('Coordenadas:', '').trim());
+        if (fromText != null) {
+          routeCoords = 'Coordenadas: ${fromText.$1}, ${fromText.$2}';
+        }
+        // c) Si tampoco, dejamos el texto como está (tu MapDetail tiene fallback interno)
+      }
+    } else {
+      // No hay link: intentamos parsear coords del texto
+      final fromText = _parseLatLngFromLinkOrText(space.coordinates.replaceFirst('Coordenadas:', '').trim());
+      if (fromText != null) {
+        routeCoords = 'Coordenadas: ${fromText.$1}, ${fromText.$2}';
+      }
     }
 
-    // Navega a tu pantalla de mapa (se mantiene tu implementación)
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => MapDetailScreen(
           routeTitle: space.title,
-          // Mostramos el texto de coordinates; si deseas cambiar a usar el link,
-          // ajusta MapDetailScreen (otro CU).
-          routeCoordinates: space.coordinates,
+          routeCoordinates: routeCoords,
           mapImagePath: space.mapImagePath,
         ),
       ),
     );
   }
+
 
   void _showAddSpaceModal() {
     showModalBottomSheet(
@@ -231,7 +487,7 @@ class _VistaEspaciosState extends State<VistaEspacios> {
     );
   }
 
-  // --- FUNCIÓN MODIFICADA: límite de 5 notas (UI local, no persiste en este CU) ---
+  // --- FUNCIÓN: límite de 5 notas (UI local, no persiste en este CU) ---
   void _showAddNoteModal(RunningSpace space) {
     if (space.notes.length >= 5) {
       _showSnack('No puedes agregar más de 5 notas por espacio.', isError: true);
@@ -314,12 +570,14 @@ class _VistaEspaciosState extends State<VistaEspacios> {
 
   @override
   Widget build(BuildContext context) {
+    // combinamos 5 defaults + espacios del backend
+    final combined = <RunningSpace>[..._defaultSpaces, ..._apiSpaces];
+
     return Scaffold(
       body: SafeArea(
         child: Stack(
           children: [
-            if (_loading)
-              const LinearProgressIndicator(minHeight: 2),
+            if (_loading) const LinearProgressIndicator(minHeight: 2),
             ListView(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
               children: [
@@ -343,30 +601,27 @@ class _VistaEspaciosState extends State<VistaEspacios> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      _spaces.isEmpty ? 'Sin espacios' : '${_spaces.length} espacio(s)',
+                      combined.isEmpty
+                          ? 'Sin espacios'
+                          : '${combined.length} espacio(s)',
                       style: const TextStyle(color: Colors.grey),
                     ),
                   ],
                 ),
                 const SizedBox(height: 8),
-                ..._spaces
-                    // Si quieres mostrar máximo 10 (punto 2 del flujo),
-                    // comenta la línea de abajo si prefieres todos:
-                    .take(10)
-                    .map(
-                      (space) => Padding(
-                        padding: const EdgeInsets.only(bottom: 20.0),
-                        child: _RouteCard(
-                          space: space,
-                          onAddNote: () => _showAddNoteModal(space),
-                          onDeleteNote: (index) => _deleteNote(space, index),
-                          onEditNote: (index) => _showEditNoteModal(space, index),
-                          onSafetyChanged: (newSafety) => _updateSafety(space, newSafety),
-                          onSeeMap: () => _openOnMap(space),
-                        ),
-                      ),
-                    )
-                    .toList(),
+                ...combined.map(
+                  (space) => Padding(
+                    padding: const EdgeInsets.only(bottom: 20.0),
+                    child: _RouteCard(
+                      space: space,
+                      onAddNote: () => _showAddNoteModal(space),
+                      onDeleteNote: (index) => _deleteNote(space, index),
+                      onEditNote: (index) => _showEditNoteModal(space, index),
+                      onSafetyChanged: (newSafety) => _updateSafety(space, newSafety),
+                      onSeeMap: () => _openOnMap(space),
+                    ),
+                  ),
+                ),
               ],
             ),
             Positioned(

@@ -288,14 +288,29 @@ class _AddContactSheetState extends State<_AddContactSheet> {
     }
 
     final nombre = nombreController.text.trim();
-    final telefono = telefonoController.text.trim();
+    final telefonoRaw = telefonoController.text.trim();
     final relacion = relacionController.text.trim();
 
-    if (nombre.isEmpty || telefono.isEmpty) {
+    if (nombre.isEmpty || telefonoRaw.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Por favor llena los campos obligatorios'),
-        ),
+        const SnackBar(content: Text('Por favor llena los campos obligatorios')),
+      );
+      return;
+    }
+
+    // --- Normaliza el teléfono a solo dígitos ---
+    String telefonoDigits = telefonoRaw.replaceAll(RegExp(r'\D'), '');
+    // Casos comunes en MX: +52XXXXXXXXXX, 52XXXXXXXXXX, 521XXXXXXXXXX (WhatsApp)
+    if (telefonoDigits.length == 13 && telefonoDigits.startsWith('521')) {
+      telefonoDigits = telefonoDigits.substring(3);
+    } else if (telefonoDigits.length == 12 && telefonoDigits.startsWith('52')) {
+      telefonoDigits = telefonoDigits.substring(2);
+    }
+
+    // Validación estricta: exactamente 10 dígitos
+    if (telefonoDigits.length != 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El teléfono debe tener exactamente 10 dígitos.')),
       );
       return;
     }
@@ -304,15 +319,13 @@ class _AddContactSheetState extends State<_AddContactSheet> {
 
     final body = {
       'nombre': nombre,
-      'telefono': telefono,
+      'telefono': telefonoDigits, // <- usa el número normalizado
       'relacion': relacion.isEmpty ? 'N/A' : relacion,
     };
 
     final url = widget.contacto == null
         ? Uri.parse('http://157.137.187.110:8000/contactos')
-        : Uri.parse(
-            'http://157.137.187.110:8000/contactos/${widget.contacto!['contacto_id']}',
-          );
+        : Uri.parse('http://157.137.187.110:8000/contactos/${widget.contacto!['contacto_id']}');
 
     final method = widget.contacto == null ? 'POST' : 'PUT';
 
@@ -342,19 +355,18 @@ class _AddContactSheetState extends State<_AddContactSheet> {
         widget.onSave();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error (${response.statusCode}): ${response.body}'),
-          ),
+          SnackBar(content: Text('Error (${response.statusCode}): ${response.body}')),
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
     } finally {
       setState(() => _isSaving = false);
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

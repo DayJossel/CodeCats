@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart'; // ⬅️ nuevo
 import '../main.dart';
 
 class MapDetailScreen extends StatefulWidget {
@@ -22,10 +23,13 @@ class _MapDetailScreenState extends State<MapDetailScreen> {
   late LatLng _position;
   GoogleMapController? _mapController;
 
+  bool _hasLocationPermission = false; // ⬅️ control de permiso
+
   @override
   void initState() {
     super.initState();
     _parseCoordinates();
+    _ensureLocationPermission(); // ⬅️ pedimos permiso al entrar
   }
 
   void _parseCoordinates() {
@@ -34,11 +38,32 @@ class _MapDetailScreenState extends State<MapDetailScreen> {
           .replaceAll('Coordenadas:', '')
           .trim()
           .split(',');
-      final lat = double.parse(coords[0]);
-      final lng = double.parse(coords[1]);
+      final lat = double.parse(coords[0].trim());
+      final lng = double.parse(coords[1].trim());
       _position = LatLng(lat, lng);
     } catch (e) {
       _position = const LatLng(22.7709, -102.5832); // fallback
+    }
+  }
+
+  Future<void> _ensureLocationPermission() async {
+    // Verificamos estado del servicio (no lo forzamos a encender)
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      // si quieres, puedes avisar con un SnackBar aquí
+    }
+
+    var perm = await Geolocator.checkPermission();
+    if (perm == LocationPermission.denied) {
+      perm = await Geolocator.requestPermission();
+    }
+
+    // Si está deniedForever, no intentamos más
+    final granted = (perm == LocationPermission.always ||
+        perm == LocationPermission.whileInUse);
+
+    if (mounted) {
+      setState(() => _hasLocationPermission = granted);
     }
   }
 
@@ -74,16 +99,16 @@ class _MapDetailScreenState extends State<MapDetailScreen> {
       ),
       body: Stack(
         children: [
-          // 🗺️ Fondo: mapa de Google en lugar de imagen
           GoogleMap(
             initialCameraPosition: initialCamera,
             markers: {marker},
             onMapCreated: (controller) => _mapController = controller,
-            myLocationButtonEnabled: true,
+            // ⬇️ Solo habilitamos capa/botón si hay permiso
+            myLocationEnabled: _hasLocationPermission,
+            myLocationButtonEnabled: _hasLocationPermission,
             zoomControlsEnabled: false,
+            compassEnabled: true,
           ),
-
-          // 📍 Panel inferior con detalles
           Positioned(
             bottom: 0,
             left: 0,
