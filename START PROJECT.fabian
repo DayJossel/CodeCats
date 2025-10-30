@@ -1,6 +1,10 @@
 adb kill-server
 adb start-server
 	          :: debe salir tu dispositivo como 'device' (no 'unauthorized')
+
+flutter doctor --android-licenses
+
+
 flutter devices
 flutter run --debug -d R58M771ZXVT
 

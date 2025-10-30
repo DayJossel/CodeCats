@@ -22,11 +22,6 @@ class SmsService {
       final r = await Permission.sms.request();
       if (!r.isGranted) throw Exception('Permiso SMS denegado por el usuario.');
     }
-
-    if (!phone.isGranted) {
-      final r = await Permission.phone.request();
-      if (!r.isGranted) throw Exception('Permiso Teléfono denegado por el usuario.');
-    }
   }
 
   /// Envío silencioso a un número **exacto** (sin normalización).
