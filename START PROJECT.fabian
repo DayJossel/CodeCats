@@ -1,0 +1,7 @@
+adb kill-server
+adb start-server
+	          :: debe salir tu dispositivo como 'device' (no 'unauthorized')
+flutter devices
+flutter run --debug -d R58M771ZXVT
+
+fflutter build apk --debug
