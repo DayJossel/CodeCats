@@ -2,22 +2,27 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.example.chita_app">
 
+    <!-- Permisos de red / SMS / ubicación (los que ya tenías) -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.SEND_SMS"/>
-
+    <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
 
+    <!-- Notificaciones Android 13+ -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Alarmas exactas Android 12+ -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-
+    <!-- Re-programar tras reinicio (para recordatorios persistentes) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:name="${applicationName}"
         android:label="Chita"
         android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true"
         tools:replace="android:label">
 
+        <!-- Tu clave de Google Maps -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="AIzaSyDXqhqyG7fsp2fR2LDgV5YxyqtkcYUsmOI" />
@@ -35,6 +40,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Estos receivers son los del plugin flutter_local_notifications.
+             Normalmente se agregan por manifest-merge; aquí los incluimos explícitos
+             para asegurar que las alarmas sobrevivan reinicios. -->
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"
+            android:exported="false" />
+        <receiver
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
 
         <meta-data
             android:name="flutterEmbedding"

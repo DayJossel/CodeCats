@@ -11,11 +11,21 @@ import 'package:table_calendar/table_calendar.dart';
 import 'vista_estadistica.dart';
 
 import '../main.dart'; // colores
+import '../core/notification_service.dart'; // 👈 Notificaciones
 
 // =============================
 // Config API
 // =============================
 const String _baseUrl = 'http://157.137.187.110:8000';
+
+// =============================
+// Utilidades globales simples
+// =============================
+String _fmt(DateTime dt) {
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${dt.year}-${two(dt.month)}-${two(dt.day)} '
+         '${two(dt.hour)}:${two(dt.minute)}:${two(dt.second)}';
+}
 
 // =============================
 // Modelo / utilidades de estado
@@ -169,6 +179,10 @@ class _VistaCalendarioState extends State<VistaCalendario> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  bool _shouldHaveReminder(Race r) {
+    return r.status == RaceStatus.pendiente && r.dateTime.isAfter(DateTime.now());
+  }
+
   // =============================
   // Persistencia local
   // =============================
@@ -186,6 +200,7 @@ class _VistaCalendarioState extends State<VistaCalendario> {
     }
     _races.sort((a, b) => a.dateTime.compareTo(b.dateTime));
     _groupEvents();
+    await _scheduleAllRemindersQuiet(); // 👈 agenda/cancela en base a caché
     if (mounted) setState(() {});
   }
 
@@ -206,6 +221,23 @@ class _VistaCalendarioState extends State<VistaCalendario> {
   List<Race> _getEventsForDay(DateTime day) {
     final date = DateTime(day.year, day.month, day.day);
     return _events[date] ?? [];
+  }
+
+  // Agenda/ajusta silenciosamente todas las notificaciones según estado/fecha
+  Future<void> _scheduleAllRemindersQuiet() async {
+    for (final r in _races) {
+      if (_shouldHaveReminder(r)) {
+        final remindAt = r.dateTime.subtract(const Duration(hours: 2));
+        debugPrint('[CAL] (bulk) "${r.title}" -> ${_fmt(remindAt)} (local) [id=${r.id}]');
+        await NotificationService.instance.scheduleRaceReminder(
+          raceId: r.id,
+          title: r.title,
+          raceDateTimeLocal: r.dateTime,
+        );
+      } else {
+        await NotificationService.instance.cancelRaceReminder(r.id);
+      }
+    }
   }
 
   // =============================
@@ -234,13 +266,13 @@ class _VistaCalendarioState extends State<VistaCalendario> {
         _races.sort((a, b) => a.dateTime.compareTo(b.dateTime));
         _groupEvents();
         await _saveRacesToDisk();
+        await _scheduleAllRemindersQuiet(); // 👈 agenda tras sync de servidor
         setState(() {});
       } else {
         _showSnack('Error al obtener carreras (${response.statusCode}): ${response.body}');
       }
     } catch (e) {
       // sin internet: mantén caché
-      // _showSnack('Sin conexión. Mostrando datos locales.');
     } finally {
       setState(() => _isLoading = false);
     }
@@ -266,9 +298,19 @@ class _VistaCalendarioState extends State<VistaCalendario> {
           if (idx != -1) {
             _races[idx] = created;
           }
+          // Cancelar recordatorio del id temporal y agenda el nuevo
+          await NotificationService.instance.cancelRaceReminder(local.id);
+          if (_shouldHaveReminder(created)) {
+            final remindAt = created.dateTime.subtract(const Duration(hours: 2));
+            debugPrint('[CAL] (sync) "${created.title}" -> ${_fmt(remindAt)} (local) [id=${created.id}]');
+            await NotificationService.instance.scheduleRaceReminder(
+              raceId: created.id,
+              title: created.title,
+              raceDateTimeLocal: created.dateTime,
+            );
+          }
         } else {
-          // servidor rechazó, lo dejamos local pero NO decimos "sin conexión"
-          // (evitamos ruido)
+          // servidor rechazó, lo dejamos local
         }
       } catch (_) {
         // sin conexión: salimos silenciosamente
@@ -317,6 +359,19 @@ class _VistaCalendarioState extends State<VistaCalendario> {
             final idx = _races.indexWhere((r) => r.id == existingRace.id);
             if (idx != -1) _races[idx] = created;
             _showSnack('Carrera registrada.');
+
+            // Cancelar recordatorio del id temporal y agenda el nuevo
+            await NotificationService.instance.cancelRaceReminder(backup.id);
+            if (_shouldHaveReminder(created)) {
+              final remindAt = created.dateTime.subtract(const Duration(hours: 2));
+              debugPrint('[CAL] (edit->server) "${created.title}" -> ${_fmt(remindAt)} (local)');
+              await NotificationService.instance.scheduleRaceReminder(
+                raceId: created.id,
+                title: created.title,
+                raceDateTimeLocal: created.dateTime,
+              );
+              _showSnack('Recordatorio: ${_fmt(remindAt)}');
+            }
           } else {
             final idx = _races.indexWhere((r) => r.id == existingRace.id);
             if (idx != -1) _races[idx] = backup;
@@ -342,6 +397,21 @@ class _VistaCalendarioState extends State<VistaCalendario> {
           );
           if (resp.statusCode == 200) {
             _showSnack('Carrera actualizada correctamente');
+
+            // Reprograma (o cancela) según corresponda
+            if (_shouldHaveReminder(existingRace)) {
+              final remindAt = existingRace.dateTime.subtract(const Duration(hours: 2));
+              debugPrint('[CAL] (edit) "${existingRace.title}" -> ${_fmt(remindAt)} (local)');
+              await NotificationService.instance.rescheduleRaceReminder(
+                raceId: existingRace.id,
+                title: existingRace.title,
+                raceDateTimeLocal: existingRace.dateTime,
+              );
+              _showSnack('Recordatorio reprogramado: ${_fmt(remindAt)}');
+            } else {
+              await NotificationService.instance.cancelRaceReminder(existingRace.id);
+              debugPrint('[CAL] (edit) Recordatorio cancelado id=${existingRace.id}');
+            }
           } else {
             // revertimos en error de servidor
             existingRace.title = backup.title;
@@ -383,6 +453,17 @@ class _VistaCalendarioState extends State<VistaCalendario> {
           final created = Race.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
           _races.add(created);
           _showSnack('Carrera registrada.');
+
+          if (_shouldHaveReminder(created)) {
+            final remindAt = created.dateTime.subtract(const Duration(hours: 2));
+            debugPrint('[CAL] (create) Programando "${created.title}" para ${_fmt(remindAt)} (local)');
+            await NotificationService.instance.scheduleRaceReminder(
+              raceId: created.id,
+              title: created.title,
+              raceDateTimeLocal: created.dateTime,
+            );
+            _showSnack('Recordatorio: ${_fmt(remindAt)}');
+          }
         } else {
           _showSnack('Error (${resp.statusCode}): ${resp.body}');
         }
@@ -397,6 +478,17 @@ class _VistaCalendarioState extends State<VistaCalendario> {
         );
         _races.add(local);
         _showSnack('Sin conexión. Carrera guardada localmente.');
+
+        if (_shouldHaveReminder(local)) {
+          final remindAt = local.dateTime.subtract(const Duration(hours: 2));
+          debugPrint('[CAL] (create-offline) "${local.title}" -> ${_fmt(remindAt)} (local) [id=${local.id}]');
+          await NotificationService.instance.scheduleRaceReminder(
+            raceId: local.id,
+            title: local.title,
+            raceDateTimeLocal: local.dateTime,
+          );
+          _showSnack('Recordatorio (offline): ${_fmt(remindAt)}');
+        }
       } on TimeoutException catch (_) {
         final local = Race(
           id: -DateTime.now().millisecondsSinceEpoch,
@@ -407,6 +499,16 @@ class _VistaCalendarioState extends State<VistaCalendario> {
         );
         _races.add(local);
         _showSnack('Sin conexión (timeout). Guardada localmente.');
+        if (_shouldHaveReminder(local)) {
+          final remindAt = local.dateTime.subtract(const Duration(hours: 2));
+          debugPrint('[CAL] (create-offline/timeout) "${local.title}" -> ${_fmt(remindAt)} (local)');
+          await NotificationService.instance.scheduleRaceReminder(
+            raceId: local.id,
+            title: local.title,
+            raceDateTimeLocal: local.dateTime,
+          );
+          _showSnack('Recordatorio (offline): ${_fmt(remindAt)}');
+        }
       } on http.ClientException catch (_) {
         final local = Race(
           id: -DateTime.now().millisecondsSinceEpoch,
@@ -417,6 +519,16 @@ class _VistaCalendarioState extends State<VistaCalendario> {
         );
         _races.add(local);
         _showSnack('Sin conexión. Guardada localmente.');
+        if (_shouldHaveReminder(local)) {
+          final remindAt = local.dateTime.subtract(const Duration(hours: 2));
+          debugPrint('[CAL] (create-offline/client) "${local.title}" -> ${_fmt(remindAt)} (local)');
+          await NotificationService.instance.scheduleRaceReminder(
+            raceId: local.id,
+            title: local.title,
+            raceDateTimeLocal: local.dateTime,
+          );
+          _showSnack('Recordatorio (offline): ${_fmt(remindAt)}');
+        }
       }
     }
 
@@ -430,8 +542,24 @@ class _VistaCalendarioState extends State<VistaCalendario> {
     final prev = race.status;
     race.status = newStatus;
 
+    // Manejo local también agenda/cancela
+    Future<void> _applyLocalReminderPolicy() async {
+      if (race.status == RaceStatus.pendiente && race.dateTime.isAfter(DateTime.now())) {
+        final remindAt = race.dateTime.subtract(const Duration(hours: 2));
+        await NotificationService.instance.rescheduleRaceReminder(
+          raceId: race.id,
+          title: race.title,
+          raceDateTimeLocal: race.dateTime,
+        );
+        debugPrint('[CAL] (estado->pendiente) "${race.title}" -> ${_fmt(remindAt)} (local)');
+      } else {
+        await NotificationService.instance.cancelRaceReminder(race.id);
+        debugPrint('[CAL] (estado) Recordatorio cancelado id=${race.id}');
+      }
+    }
+
     if (race.id <= 0) {
-      // local: mantenemos cambio y se sincroniza luego
+      await _applyLocalReminderPolicy();
       _showSnack('Estado guardado localmente.');
       await _saveRacesToDisk();
       if (mounted) setState(() {});
@@ -445,16 +573,20 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       );
       if (resp.statusCode == 200) {
         _showSnack('Estado de la carrera actualizado.');
+        await _applyLocalReminderPolicy();
       } else {
         race.status = prev; // revertimos en error de servidor
         _showSnack('Error (${resp.statusCode}): ${resp.body}');
       }
     } on SocketException catch (_) {
       _showSnack('Sin conexión. Estado guardado sólo localmente.');
+      await _applyLocalReminderPolicy();
     } on TimeoutException catch (_) {
       _showSnack('Sin conexión (timeout). Estado local.');
+      await _applyLocalReminderPolicy();
     } on http.ClientException catch (_) {
       _showSnack('Sin conexión. Estado local.');
+      await _applyLocalReminderPolicy();
     }
 
     await _saveRacesToDisk();
@@ -462,6 +594,10 @@ class _VistaCalendarioState extends State<VistaCalendario> {
   }
 
   Future<void> _deleteRace(Race race) async {
+    // Cancela recordatorio siempre (local o remota)
+    await NotificationService.instance.cancelRaceReminder(race.id);
+    debugPrint('[CAL] (delete) Recordatorio cancelado id=${race.id}');
+
     if (race.id > 0) {
       try {
         final resp = await http.delete(
@@ -602,7 +738,6 @@ class _VistaCalendarioState extends State<VistaCalendario> {
     );
   }
 
-
   Widget _buildTableCalendar() {
     return TableCalendar<Race>(
       firstDay: DateTime.utc(2020, 1, 1),
@@ -669,7 +804,6 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       },
     );
   }
-
 
   Widget _buildEmptyDay() {
     return Center(
