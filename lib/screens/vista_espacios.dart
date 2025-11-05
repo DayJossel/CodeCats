@@ -121,14 +121,17 @@ bool _isLikelyUrl(String s) => s.startsWith('http://') || s.startsWith('https://
   final text = raw.trim();
   if (text.isEmpty) return null;
 
+  // 1) "lat,lng" plano
   final plain = RegExp(r'^\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$');
   final mPlain = plain.firstMatch(text);
   if (mPlain != null) return (mPlain.group(1)!, mPlain.group(2)!);
 
+  // 2) "geo:lat,lng"
   final geo = RegExp(r'^geo:\s*(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)');
   final mGeo = geo.firstMatch(text);
   if (mGeo != null) return (mGeo.group(1)!, mGeo.group(2)!);
 
+  // 3) URLs (Google Maps typical patterns)
   if (_isLikelyUrl(text)) {
     final uri = Uri.tryParse(text);
 
@@ -150,12 +153,13 @@ bool _isLikelyUrl(String s) => s.startsWith('http://') || s.startsWith('https://
       if (mQuery != null) return (mQuery.group(1)!, mQuery.group(2)!);
     }
 
+    // @lat,lng en el path
     final s = text;
-
     final at = RegExp(r'@(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)');
     final mAt = at.firstMatch(s);
     if (mAt != null) return (mAt.group(1)!, mAt.group(2)!);
 
+    // !3d<lat>!4d<lng> (deep params)
     final bang = RegExp(r'!3d(-?\d{1,3}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)');
     final mBang = bang.firstMatch(s);
     if (mBang != null) return (mBang.group(1)!, mBang.group(2)!);
@@ -167,6 +171,8 @@ bool _isLikelyUrl(String s) => s.startsWith('http://') || s.startsWith('https://
 String _canonicalGoogleMapsUrlFromLatLng(String lat, String lng) =>
     'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
 
+/// Sigue redirecciones para resolver short-links y tratar de extraer lat/lng.
+/// Si no encuentra coordenadas, retorna null.
 Future<(String, String)?> _resolveLatLngFromAnyLink(String raw) async {
   final direct = _parseLatLngFromLinkOrText(raw);
   if (direct != null) return direct;
@@ -184,14 +190,17 @@ Future<(String, String)?> _resolveLatLngFromAnyLink(String raw) async {
       final streamed = await client.send(req);
       final status = streamed.statusCode;
 
+      // ¿Ya contiene coordenadas la URL actual?
       final parsedHere = _parseLatLngFromLinkOrText(current.toString());
       if (parsedHere != null) return parsedHere;
 
+      // Manejo de 3xx con header Location
       if (status >= 300 && status < 400) {
         final loc = streamed.headers['location'];
         if (loc == null || loc.isEmpty) break;
 
         Uri next = Uri.parse(Uri.decodeFull(loc));
+        // Si viene envuelta en ?link=...
         final inner = next.queryParameters['link'];
         if (inner != null && inner.isNotEmpty) {
           next = Uri.parse(Uri.decodeFull(inner));
@@ -200,6 +209,7 @@ Future<(String, String)?> _resolveLatLngFromAnyLink(String raw) async {
         continue;
       }
 
+      // Intento: meta refresh en body
       final body = await streamed.stream.bytesToString();
       final meta = RegExp(
         r"""http-equiv=["']refresh["'][^>]*content=["'][^;]*;\s*url=([^"']+)["']""",
@@ -366,6 +376,8 @@ class _VistaEspaciosState extends State<VistaEspacios> {
     }
   }
 
+  /// Crea un espacio **solo si** el link contiene coordenadas (cuando hay internet).
+  /// Si **no hay internet**, se guarda tal cual el link proporcionado (sin validar).
   Future<void> _addSpace(String name, String? link) async {
     final nameTrim = name.trim();
     final linkTrim = (link ?? '').trim();
@@ -379,11 +391,32 @@ class _VistaEspaciosState extends State<VistaEspacios> {
       return;
     }
 
-    // No bloqueamos por validación de red: aceptamos maps.app.goo.gl tal cual.
-    // Si el usuario pega "lat,lng", lo convertimos a URL canónica de Google Maps.
-    final plain = _parseLatLngFromLinkOrText(linkTrim);
-    final enlaceParaGuardar =
-        (plain != null) ? _canonicalGoogleMapsUrlFromLatLng(plain.$1, plain.$2) : linkTrim;
+    // 🔎 Validación condicionada a conectividad:
+    final conn = await Connectivity().checkConnectivity();
+    (String, String)? coords;
+
+    if (conn != ConnectivityResult.none) {
+      // Con internet: solo aceptamos si se puede extraer lat/lng.
+      coords = _parseLatLngFromLinkOrText(linkTrim);
+      if (coords == null && _isLikelyUrl(linkTrim)) {
+        coords = await _resolveLatLngFromAnyLink(linkTrim);
+      }
+      if (coords == null) {
+        _showSnack(
+          'URL inválida: solo se aceptan enlaces con latitud y longitud (p. ej. "22.77,-102.58" o un link de Maps que incluya coordenadas).',
+          isError: true,
+        );
+        return;
+      }
+    } else {
+      // Sin internet: se guarda tal cual (sin validar).
+      coords = null;
+    }
+
+    // Si detectamos coords y hay internet, normalizamos a URL canónica; si no, lo que puso el usuario.
+    final enlaceParaGuardar = (coords != null)
+        ? _canonicalGoogleMapsUrlFromLatLng(coords.$1, coords.$2)
+        : linkTrim;
 
     try {
       final headers = await _authHeaders();
@@ -757,7 +790,7 @@ class _AddSpaceSheetState extends State<_AddSpaceSheet> {
               controller: _linkController,
               decoration: const InputDecoration(
                 labelText: 'Link del espacio *',
-                hintText: 'https://maps.app.goo.gl/… o https://maps.google.com/… o lat,lng',
+                hintText: 'https://maps.app.goo.gl/… / https://maps.google.com/… / o lat,lng',
               ),
               validator: (value) =>
                   (value == null || value.trim().isEmpty) ? 'Ingresa un link.' : null,
@@ -925,7 +958,6 @@ class _RouteCard extends StatelessWidget {
                   safety: space.safety,
                   onChanged: (newSafety) => onSafetyChanged(newSafety),
                 ),
-                // 👇 Ya no mostramos las coordenadas en la tarjeta
                 if (space.notes.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   const Divider(color: Colors.white24),

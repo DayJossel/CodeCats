@@ -115,6 +115,11 @@ class _MainScreenState extends State<MainScreen> {
   ];
 
   void _onItemTapped(int index) {
+    // 🔒 Deshabilitar temporalmente la pestaña de Perfil (índice 4)
+    if (index == 4) {
+      // No hacer nada. Para re-habilitar, borra este if.
+      return;
+    }
     setState(() => _selectedIndex = index);
   }
 
