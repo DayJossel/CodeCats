@@ -1,11 +1,13 @@
 // lib/core/notification_service.dart
 import 'dart:async';
+import 'dart:convert'; // ✅ necesario para jsonEncode/jsonDecode
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
@@ -16,7 +18,7 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _initialized = false;
 
-  // Canal nativo para permisos de alarmas exactas (ver MainActivity.kt)
+  // Canal nativo para permisos de alarmas exactas (MainActivity.kt)
   static const MethodChannel _alarmPerms = MethodChannel('chita/exact_alarm');
 
   // Canal Android de notificaciones
@@ -28,20 +30,20 @@ class NotificationService {
     playSound: true,
   );
 
-  // --- Helper para logs legibles
+  // Registro anti-duplicados: id -> instante programado (ms epoch del remindAt)
+  static const String _regKey = 'notif_registry_v1';
+
   String _fmt(DateTime dt) {
     String two(int n) => n.toString().padLeft(2, '0');
-    return '${dt.year}-${two(dt.month)}-${two(dt.day)} '
-           '${two(dt.hour)}:${two(dt.minute)}:${two(dt.second)}';
+    return '${dt.year}-${two(dt.month)}-${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}:${two(dt.second)}';
   }
 
   Future<void> init() async {
     if (_initialized) return;
 
-    // Zona horaria
     tzdata.initializeTimeZones();
     try {
-      final localTz = await FlutterTimezone.getLocalTimezone(); // ej. America/Mexico_City
+      final localTz = await FlutterTimezone.getLocalTimezone();
       final tzName = (localTz is String)
           ? localTz
           : (localTz as dynamic).identifier ?? localTz.toString();
@@ -51,7 +53,6 @@ class NotificationService {
       tz.setLocalLocation(tz.getLocation('UTC'));
     }
 
-    // Init plugin
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosInit = DarwinInitializationSettings(
       requestAlertPermission: false,
@@ -66,7 +67,6 @@ class NotificationService {
       onDidReceiveBackgroundNotificationResponse: _onTapNotification,
     );
 
-    // Canal Android
     await _plugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(_raceChannel);
@@ -75,7 +75,6 @@ class NotificationService {
   }
 
   Future<void> ensurePermissions() async {
-    // Permiso de notificaciones (Android 13+) e iOS
     await _plugin
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.requestNotificationsPermission();
@@ -84,7 +83,6 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
         ?.requestPermissions(alert: true, badge: true, sound: true);
 
-    // Verifica/solicita "alarmas exactas" (Android 12+)
     if (Platform.isAndroid) {
       final canExact = await _canScheduleExact();
       if (!canExact) {
@@ -94,7 +92,6 @@ class NotificationService {
     }
   }
 
-  // Alias usado por tu main/UI
   Future<void> requestNotificationsPermission() => ensurePermissions();
 
   static void _onTapNotification(NotificationResponse response) {
@@ -107,7 +104,6 @@ class NotificationService {
       final ok = await _alarmPerms.invokeMethod<bool>('canScheduleExactAlarms');
       return ok ?? true;
     } catch (e) {
-      // En versiones antiguas o si falla, asumimos true para no bloquear.
       debugPrint('[NOTIF] _canScheduleExact() fallo: $e');
       return true;
     }
@@ -122,8 +118,29 @@ class NotificationService {
     }
   }
 
-  /// Programa recordatorio 2 horas antes. Si faltan <2h, agenda en 1 min (pruebas).
-  /// Usa EXACTA si el sistema lo permite; si no, cae a INEXACTA (que al menos sí dispara).
+  // ===== Registro anti-duplicados (simple y robusto) =====
+  Future<Map<String, int>> _loadRegistry() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_regKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final Map<String, dynamic> decoded = jsonDecode(raw) as Map<String, dynamic>;
+      return decoded.map((k, v) => MapEntry(k, (v as num).toInt()));
+    } catch (e) {
+      debugPrint('[NOTIF] Registro corrupto, se reinicia. Error: $e');
+      return {};
+    }
+  }
+
+  Future<void> _saveRegistry(Map<String, int> reg) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_regKey, jsonEncode(reg));
+  }
+
+  /// Agenda UNA SOLA notificación por carrera exactamente 2h antes.
+  /// - Si ya pasó ese momento (o falta < 2h) => NO agenda.
+  /// - Antes de agendar: cancela por ID para evitar duplicados.
+  /// - Usa registro local para omitir si ya está agendada al mismo instante.
   Future<bool> scheduleRaceReminder({
     required int raceId,
     required String title,
@@ -133,23 +150,34 @@ class NotificationService {
     await ensurePermissions();
 
     final now = DateTime.now();
-    DateTime remindAt = raceDateTimeLocal.subtract(const Duration(hours: 2));
-    bool fallback1min = false;
-    if (!remindAt.isAfter(now)) {
-      remindAt = now.add(const Duration(minutes: 1));
-      fallback1min = true;
-    }
-    final tzWhen = tz.TZDateTime.from(remindAt, tz.local);
+    final remindAt = raceDateTimeLocal.subtract(const Duration(hours: 2));
 
+    // ❌ No agendar si llegamos tarde o es exactamente ahora
+    if (!remindAt.isAfter(now)) {
+      debugPrint('[NOTIF] NO se agenda "$title": 2h-antes (${_fmt(remindAt)}) ya pasó o es ahora.');
+      await cancelRaceReminder(raceId); // por si hubiese una previa
+      return false;
+    }
+
+    final id = _idForRace(raceId);
+    final tzWhen = tz.TZDateTime.from(remindAt, tz.local);
     final canExact = await _canScheduleExact();
     final mode = canExact
         ? AndroidScheduleMode.exactAllowWhileIdle
         : AndroidScheduleMode.inexactAllowWhileIdle;
 
-    final debugMsg = fallback1min
-        ? '[NOTIF] (fallback) "$title" se notificará a las ${_fmt(remindAt)} (local) en 1 min porque faltaban <2h. modo=${mode.name}'
-        : '[NOTIF] "$title" se notificará a las ${_fmt(remindAt)} (local), 2h antes. modo=${mode.name}';
-    debugPrint(debugMsg);
+    // Anti-duplicados: si ya está agendada para ese instante exacto, omitimos
+    final reg = await _loadRegistry();
+    final key = id.toString();
+    final targetMs = remindAt.millisecondsSinceEpoch;
+    final prevMs = reg[key];
+    if (prevMs != null && prevMs == targetMs) {
+      debugPrint('[NOTIF] Omito: ya estaba agendada id=$id @ ${_fmt(remindAt)}.');
+      return true;
+    }
+
+    // Cancelar por ID para garantizar 1 sola
+    await _plugin.cancel(id);
 
     const androidDetails = AndroidNotificationDetails(
       'race_reminders_v2',
@@ -166,7 +194,7 @@ class NotificationService {
 
     try {
       await _plugin.zonedSchedule(
-        _idForRace(raceId),
+        id,
         'Recordatorio de carrera',
         'Tu carrera "$title" es en 2 horas.',
         tzWhen,
@@ -176,40 +204,18 @@ class NotificationService {
             UILocalNotificationDateInterpretation.wallClockTime,
         payload: raceId.toString(),
       );
-      debugPrint('[NOTIF] Programada ${mode == AndroidScheduleMode.exactAllowWhileIdle ? 'EXACTA' : 'INEXACTA'} id=${_idForRace(raceId)} en $tzWhen');
+      debugPrint('[NOTIF] Programada ${mode == AndroidScheduleMode.exactAllowWhileIdle ? 'EXACTA' : 'INEXACTA'} id=$id en ${_fmt(remindAt)}');
+      // Guarda en registro
+      reg[key] = targetMs;
+      await _saveRegistry(reg);
       return true;
-    } on PlatformException catch (e) {
-      // Si intentamos exacta y explotó, reintentamos inexacta.
-      if (mode == AndroidScheduleMode.exactAllowWhileIdle) {
-        debugPrint('[NOTIF] Exacta falló: $e — reintentando INEXACTA…');
-        try {
-          await _plugin.zonedSchedule(
-            _idForRace(raceId),
-            'Recordatorio de carrera',
-            'Tu carrera "$title" es en 2 horas.',
-            tzWhen,
-            details,
-            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-            uiLocalNotificationDateInterpretation:
-                UILocalNotificationDateInterpretation.wallClockTime,
-            payload: raceId.toString(),
-          );
-          debugPrint('[NOTIF] Programada INEXACTA id=${_idForRace(raceId)} en $tzWhen');
-          return true;
-        } catch (e2) {
-          debugPrint('[NOTIF] Inexacta también falló: $e2');
-          return false;
-        }
-      } else {
-        debugPrint('[NOTIF] Inexacta falló: $e');
-        return false;
-      }
     } catch (e) {
-      debugPrint('[NOTIF] ERROR inesperado: $e');
+      debugPrint('[NOTIF] ERROR al agendar: $e');
       return false;
     }
   }
 
+  /// Cancela y vuelve a agendar (respetando reglas de 2h antes y anti-duplicado)
   Future<void> rescheduleRaceReminder({
     required int raceId,
     required String title,
@@ -224,59 +230,17 @@ class NotificationService {
   }
 
   Future<void> cancelRaceReminder(int raceId) async {
-    await _plugin.cancel(_idForRace(raceId));
-  }
-
-  // ===== utilidades de depuración =====
-  Future<bool> scheduleTestInSeconds(int seconds) async {
     await init();
-    await ensurePermissions();
-
-    final when = tz.TZDateTime.from(
-      DateTime.now().add(Duration(seconds: seconds)),
-      tz.local,
-    );
-
-    // ID único para no pisar notificaciones previas
-    final int id = 990000 + (DateTime.now().microsecondsSinceEpoch % 90000);
-
-    const androidDetails = AndroidNotificationDetails(
-      'race_reminders_v2',
-      'Recordatorios de carreras',
-      channelDescription: 'Notificaciones 2 horas antes de cada carrera',
-      importance: Importance.high,
-      priority: Priority.high,
-      category: AndroidNotificationCategory.reminder,
-      styleInformation: BigTextStyleInformation(''),
-      ticker: 'Test notification',
-    );
-    const iosDetails = DarwinNotificationDetails();
-    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-
-    final canExact = await _canScheduleExact();
-    final mode = canExact
-        ? AndroidScheduleMode.exactAllowWhileIdle
-        : AndroidScheduleMode.inexactAllowWhileIdle;
-
-    try {
-      await _plugin.zonedSchedule(
-        id,
-        'Prueba en ${seconds}s',
-        'Si ves esto, el agendado (${mode.name}) funciona.',
-        when,
-        details,
-        androidScheduleMode: mode,
-        uiLocalNotificationDateInterpretation:
-            UILocalNotificationDateInterpretation.absoluteTime,
-        payload: 'test:$id',
-      );
-      debugPrint('[NOTIF][TEST] ${mode.name} programada id=$id at $when');
-      return true;
-    } catch (e) {
-      debugPrint('[NOTIF][TEST] Error: $e');
-      return false;
+    final id = _idForRace(raceId);
+    await _plugin.cancel(id);
+    // quita del registro
+    final reg = await _loadRegistry();
+    if (reg.remove(id.toString()) != null) {
+      await _saveRegistry(reg);
     }
   }
+
+  // ==== utilidades de depuración ====
 
   Future<void> showImmediateTest() async {
     await init();
@@ -305,6 +269,8 @@ class NotificationService {
 
   Future<void> cancelAll() async {
     await _plugin.cancelAll();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_regKey); // limpia registro
   }
 
   int _idForRace(int raceId) => 100000 + ((raceId.abs()) % 900000);
