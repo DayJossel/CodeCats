@@ -1,9 +1,9 @@
+// lib/screens/vista_espacios.dart
 import 'dart:convert';
 import 'package:chita_app/screens/map_detail.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-
 
 import '../core/session_repository.dart';
 import '../main.dart';
@@ -11,24 +11,59 @@ import '../main.dart';
 // =============== CONFIG API ===============
 const String _baseUrl = 'http://157.137.187.110:8000';
 
-// --- NUEVO ENUM PARA EL SISTEMA DE 3 PUNTOS (se mantiene, no se persiste aún) ---
+// --- ENUM del semáforo (UI local; persistir opcional) ---
 enum SpaceSafety { none, unsafe, partiallySafe, safe }
 
-// --- MODELO DE DATOS ACTUALIZADO (incluye campos del API) ---
+class SpaceNote {
+  final int id;
+  final int espacioId;
+  String content;
+
+  SpaceNote({
+    required this.id,
+    required this.espacioId,
+    required this.content,
+  });
+
+  factory SpaceNote.fromApi(Map<String, dynamic> j) => SpaceNote(
+        id: (j['nota_id'] as num).toInt(),
+        espacioId: (j['espacio_id'] as num).toInt(),
+        content: (j['contenido'] as String? ?? '').trim(),
+      );
+
+  Map<String, dynamic> toApiUpdate() => {'contenido': content};
+}
+
+// --- mapping nombre -> asset (para los 5 por defecto) ---
+String _assetForSpaceTitle(String name) {
+  switch (name.trim()) {
+    case 'Parque La Encantada':
+      return 'assets/parque_la_encantada.jpg';
+    case 'Parque Sierra de Álica':
+      return 'assets/parque_sierra_de_alica.jpg';
+    case 'La Purísima':
+      return 'assets/La_purisima.jpg';
+    case 'Parque Ramón López Velarde':
+      return 'assets/ramon.jpg';
+    case 'Parque Arroyo de la Plata':
+      return 'assets/plata.jpg';
+    default:
+      return 'assets/placeholder.jpg';
+  }
+}
+
 class RunningSpace {
   final int? espacioId;
   final int? corredorId;
-  final bool esInicial;
 
-  final String imagePath;     // UI local (placeholder)
-  final String title;         // nombreEspacio
-  final String mapImagePath;  // UI local (placeholder)
-  final String coordinates;   // texto mostrado en la tarjeta (derivado)
-  final String? link;         // enlaceUbicacion
+  final String imagePath;
+  final String title;
+  final String mapImagePath;
+  final String coordinates; // se usa solo al abrir el mapa
+  final String? link;
 
-  // Campos de UI local (no persistidos en este CU)
-  SpaceSafety safety;
-  List<String> notes;
+  SpaceSafety safety; // mapeado desde 'semaforo' del backend
+  List<SpaceNote> notes;
 
   RunningSpace({
     required this.title,
@@ -36,83 +71,79 @@ class RunningSpace {
     this.link,
     this.espacioId,
     this.corredorId,
-    this.esInicial = false,
-    this.imagePath = 'assets/placeholder.jpg',
+    String? imagePath,
     this.mapImagePath = 'assets/map.png',
     this.safety = SpaceSafety.none,
-    List<String>? notes,
-  }) : notes = notes ?? [];
+    List<SpaceNote>? notes,
+  })  : imagePath = imagePath ?? _assetForSpaceTitle(title),
+        notes = notes ?? [];
 
-  // Factory desde JSON del API
+  static SpaceSafety _safetyFromDb(int? n) {
+    if (n == null) return SpaceSafety.none;
+    switch (n) {
+      case 0:
+        return SpaceSafety.unsafe;
+      case 1:
+        return SpaceSafety.partiallySafe;
+      case 2:
+        return SpaceSafety.safe;
+      default:
+        return SpaceSafety.none;
+    }
+  }
+
   factory RunningSpace.fromJson(Map<String, dynamic> j) {
     final link = (j['enlaceUbicacion'] as String?)?.trim();
     final parsed = _parseLatLngFromLinkOrText(link ?? '');
     final coordsText = (parsed != null)
         ? 'Coordenadas: ${parsed.$1}, ${parsed.$2}'
-        : (link == null || link.isEmpty)
-            ? 'Coordenadas no disponibles'
-            : 'Link: $link';
+        : 'Coordenadas no disponibles';
+
+    final name = (j['nombreEspacio'] as String?)?.trim() ?? 'Sin nombre';
+    final n = (j['semaforo'] as num?)?.toInt();
 
     return RunningSpace(
       espacioId: (j['espacio_id'] as num?)?.toInt(),
       corredorId: (j['corredor_id'] as num?)?.toInt(),
-      esInicial: (j['es_inicial'] as bool?) ?? false,
-      title: (j['nombreEspacio'] as String?)?.trim() ?? 'Sin nombre',
+      title: name,
       link: (link?.isEmpty == true) ? null : link,
       coordinates: coordsText,
+      imagePath: _assetForSpaceTitle(name),
+      safety: _safetyFromDb(n),
     );
   }
-
-  // Para POST (crear)
-  Map<String, dynamic> toCreateBody() => {
-        'nombreEspacio': title,
-        'enlaceUbicacion': link ?? '',
-        'es_inicial': false,
-      };
 }
 
-// ====== HELPERS: validación y extracción de lat,lng desde links/texto ======
+// ====== HELPERS de coordenadas ======
 bool _isLikelyUrl(String s) => s.startsWith('http://') || s.startsWith('https://');
 
-/// Devuelve (lat,lng) si encuentra coordenadas en:
-/// - ?q=lat,lng
-/// - @lat,lng
-/// - !3dLAT!4dLNG
-/// - texto "lat,lng" suelto
-/// Si no hay, devuelve null.
 (String, String)? _parseLatLngFromLinkOrText(String raw) {
   final text = raw.trim();
   if (text.isEmpty) return null;
 
-  // A) "lat,lng" plano
   final plain = RegExp(r'^\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$');
   final mPlain = plain.firstMatch(text);
   if (mPlain != null) return (mPlain.group(1)!, mPlain.group(2)!);
 
-  // B) geo:lat,lng
   final geo = RegExp(r'^geo:\s*(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)');
   final mGeo = geo.firstMatch(text);
   if (mGeo != null) return (mGeo.group(1)!, mGeo.group(2)!);
 
-  // C) Si es URL, intentamos varios patrones
   if (_isLikelyUrl(text)) {
     final uri = Uri.tryParse(text);
 
-    // ?q=lat,lng
     final q = uri?.queryParameters['q'];
     if (q != null) {
       final mq = plain.firstMatch(q);
       if (mq != null) return (mq.group(1)!, mq.group(2)!);
     }
 
-    // ?ll=lat,lng (también lo usa Google)
     final ll = uri?.queryParameters['ll'];
     if (ll != null) {
       final mll = plain.firstMatch(ll);
       if (mll != null) return (mll.group(1)!, mll.group(2)!);
     }
 
-    // search/?api=1&query=lat,lng
     final query = uri?.queryParameters['query'];
     if (query != null) {
       final mQuery = plain.firstMatch(query);
@@ -121,12 +152,10 @@ bool _isLikelyUrl(String s) => s.startsWith('http://') || s.startsWith('https://
 
     final s = text;
 
-    // @lat,lng
     final at = RegExp(r'@(-?\d{1,3}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)');
     final mAt = at.firstMatch(s);
     if (mAt != null) return (mAt.group(1)!, mAt.group(2)!);
 
-    // !3dLAT!4dLNG
     final bang = RegExp(r'!3d(-?\d{1,3}(?:\.\d+)?)!4d(-?\d{1,3}(?:\.\d+)?)');
     final mBang = bang.firstMatch(s);
     if (mBang != null) return (mBang.group(1)!, mBang.group(2)!);
@@ -139,11 +168,8 @@ String _canonicalGoogleMapsUrlFromLatLng(String lat, String lng) =>
     'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
 
 Future<(String, String)?> _resolveLatLngFromAnyLink(String raw) async {
-  // 1) ¿ya hay lat,lng directo?
   final direct = _parseLatLngFromLinkOrText(raw);
   if (direct != null) return direct;
-
-  // 2) Si no parece URL, no se puede resolver
   if (!_isLikelyUrl(raw)) return null;
 
   final client = http.Client();
@@ -152,38 +178,28 @@ Future<(String, String)?> _resolveLatLngFromAnyLink(String raw) async {
 
     for (int i = 0; i < 6; i++) {
       final req = http.Request('GET', current);
-      // No sigas redirects automáticamente: queremos leer Location
       req.followRedirects = false;
       req.headers['User-Agent'] = 'Mozilla/5.0 (Flutter; Dart)';
 
       final streamed = await client.send(req);
       final status = streamed.statusCode;
 
-      // a) Intenta parsear coords de la URL actual
       final parsedHere = _parseLatLngFromLinkOrText(current.toString());
       if (parsedHere != null) return parsedHere;
 
-      // b) Si es redirección, mira el Location
       if (status >= 300 && status < 400) {
         final loc = streamed.headers['location'];
         if (loc == null || loc.isEmpty) break;
 
-        // Puede venir algo como .../?link=https%3A%2F%2Fwww.google.com%2Fmaps%2F...
         Uri next = Uri.parse(Uri.decodeFull(loc));
-
-        // Si trae ?link=, úsalo (suele ser la URL grande con coords o @lat,lng)
         final inner = next.queryParameters['link'];
         if (inner != null && inner.isNotEmpty) {
           next = Uri.parse(Uri.decodeFull(inner));
         }
-
-        // Próximo salto
         current = next;
-        // intentamos en el siguiente loop
         continue;
       }
 
-      // c) No hay redirect: intentemos body por <meta http-equiv="refresh" ...>
       final body = await streamed.stream.bytesToString();
       final meta = RegExp(
         r"""http-equiv=["']refresh["'][^>]*content=["'][^;]*;\s*url=([^"']+)["']""",
@@ -195,31 +211,23 @@ Future<(String, String)?> _resolveLatLngFromAnyLink(String raw) async {
         final parsedMeta = _parseLatLngFromLinkOrText(redirected.toString());
         if (parsedMeta != null) return parsedMeta;
 
-        // Si ese meta trae link=, también lo abrimos
         final inner2 = redirected.queryParameters['link'];
         if (inner2 != null && inner2.isNotEmpty) {
           final innerUri = Uri.parse(Uri.decodeFull(inner2));
           final parsedInner = _parseLatLngFromLinkOrText(innerUri.toString());
           if (parsedInner != null) return parsedInner;
-
-          // Reintenta como "siguiente" URL
           current = innerUri;
           continue;
         }
       }
-
-      // Si llegamos aquí y nada, paramos.
       break;
     }
   } catch (_) {
-    // silencio: devolvemos null abajo
   } finally {
     client.close();
   }
-
   return null;
 }
-
 
 class VistaEspacios extends StatefulWidget {
   const VistaEspacios({super.key});
@@ -229,51 +237,7 @@ class VistaEspacios extends StatefulWidget {
 }
 
 class _VistaEspaciosState extends State<VistaEspacios> {
-  // ===== 5 ESPACIOS POR DEFECTO (los que ya tenías) =====
-  final List<RunningSpace> _defaultSpaces = [
-    RunningSpace(
-      imagePath: 'assets/parque_la_encantada.jpg',
-      title: 'Parque La Encantada',
-      mapImagePath: 'assets/map.png',
-      coordinates: 'Coordenadas: 22.7597523, -102.5788378',
-      link: null,
-    ),
-    RunningSpace(
-      imagePath: 'assets/parque_sierra_de_alica.jpg',
-      title: 'Parque Sierra de Álica',
-      mapImagePath: 'assets/map.png',
-      coordinates: 'Coordenadas: 22.7696141, -102.5767151',
-      link: null,
-      safety: SpaceSafety.safe,
-    ),
-    RunningSpace(
-      imagePath: 'assets/La_purisima.jpg',
-      title: 'La Purísima',
-      mapImagePath: 'assets/map.png',
-      coordinates: 'Coordenadas: 22.7496541, -102.5238082',
-      link: null,
-      safety: SpaceSafety.partiallySafe,
-    ),
-    RunningSpace(
-      imagePath: 'assets/ramon.jpg',
-      title: 'Parque Ramón López Velarde',
-      mapImagePath: 'assets/map.png',
-      coordinates: 'Coordenadas: 22.7582581, -102.5417730',
-      link: null,
-      safety: SpaceSafety.unsafe,
-    ),
-    RunningSpace(
-      imagePath: 'assets/plata.jpg',
-      title: 'Parque Arroyo de la Plata',
-      mapImagePath: 'assets/map.png',
-      coordinates: 'Coordenadas: 22.7569926, -102.5387186',
-      link: null,
-    ),
-  ];
-
-  // ===== Espacios del backend (usuario) =====
   final List<RunningSpace> _apiSpaces = [];
-
   bool _loading = false;
 
   @override
@@ -285,7 +249,6 @@ class _VistaEspaciosState extends State<VistaEspacios> {
   Future<Map<String, String>> _authHeaders() async {
     final cid = await SessionRepository.corredorId();
     final pass = await SessionRepository.contrasenia();
-
     if (cid == null || pass == null || pass.isEmpty) {
       throw Exception('Sesión inválida: faltan credenciales.');
     }
@@ -295,265 +258,6 @@ class _VistaEspaciosState extends State<VistaEspacios> {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
     };
-  }
-
-  Future<void> _fetchSpaces() async {
-    setState(() => _loading = true);
-    try {
-      final headers = await _authHeaders();
-      final url = Uri.parse('$_baseUrl/espacios');
-      final resp = await http.get(url, headers: headers);
-
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as List<dynamic>;
-        final items =
-            data.map((e) => RunningSpace.fromJson(e as Map<String, dynamic>)).toList();
-        setState(() {
-          _apiSpaces
-            ..clear()
-            ..addAll(items);
-        });
-      } else {
-        _showSnack('No se pudo obtener la lista de espacios (HTTP ${resp.statusCode}).',
-            isError: true);
-      }
-    } catch (e) {
-      _showSnack('Error al obtener espacios: $e', isError: true);
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _addSpace(String name, String? link) async {
-    if (name.trim().isEmpty) {
-      _showSnack('El nombre es obligatorio.', isError: true);
-      return;
-    }
-
-    // --- Validación estricta de enlace (si viene) ---
-    String? linkTrim = link?.trim();
-    (String, String)? coordsFromLink;
-
-    if (linkTrim != null && linkTrim.isNotEmpty) {
-      // 1) "lat,lng" plano → directo
-      final plain = _parseLatLngFromLinkOrText(linkTrim);
-      if (plain != null) {
-        coordsFromLink = plain;
-      } else {
-        // 2) URL (maps.app.goo.gl / google.com/maps / etc.) → resolver
-        final conn = await Connectivity().checkConnectivity();
-        if (conn == ConnectivityResult.none) {
-          _showSnack(
-            'No hay internet para validar el enlace. '
-            'Usa formato "lat,lng" o intenta de nuevo con conexión.',
-            isError: true,
-          );
-          return;
-        }
-
-        coordsFromLink = await _resolveLatLngFromAnyLink(linkTrim);
-        if (coordsFromLink == null) {
-          _showSnack(
-            'El enlace no corresponde a una ubicación válida. '
-            'Pega un link de Google Maps que apunte a una ubicación o usa "lat,lng".',
-            isError: true,
-          );
-          return;
-        }
-      }
-    }
-
-    try {
-      final headers = await _authHeaders();
-      final url = Uri.parse('$_baseUrl/espacios');
-
-      // ⬇️⬇️ ESTE ES EL CAMBIO CLAVE: canoniza si tienes coords
-      final enlaceParaGuardar = (coordsFromLink != null)
-          ? _canonicalGoogleMapsUrlFromLatLng(coordsFromLink.$1, coordsFromLink.$2)
-          : (linkTrim ?? '');
-
-      final body = jsonEncode({
-        'nombreEspacio': name.trim(),
-        'enlaceUbicacion': enlaceParaGuardar, // <-- aquí usamos la URL canonical
-        'es_inicial': false,
-      });
-
-      final resp = await http.post(url, headers: headers, body: body);
-      if (resp.statusCode == 200) {
-        final j = jsonDecode(resp.body) as Map<String, dynamic>;
-
-        // Mostrar coords en la tarjeta
-        final coordsText = (coordsFromLink != null)
-            ? 'Coordenadas: ${coordsFromLink.$1}, ${coordsFromLink.$2}'
-            : (() {
-                final parsedAfter = _parseLatLngFromLinkOrText(
-                    j['enlaceUbicacion'] as String? ?? '');
-                if (parsedAfter != null) {
-                  return 'Coordenadas: ${parsedAfter.$1}, ${parsedAfter.$2}';
-                }
-                return 'Coordenadas no disponibles';
-              })();
-
-        final created = RunningSpace(
-          espacioId: (j['espacio_id'] as num?)?.toInt(),
-          corredorId: (j['corredor_id'] as num?)?.toInt(),
-          esInicial: (j['es_inicial'] as bool?) ?? false,
-          title: (j['nombreEspacio'] as String?)?.trim() ?? 'Sin nombre',
-          link: ((j['enlaceUbicacion'] as String?)?.trim().isEmpty ?? true)
-              ? null
-              : (j['enlaceUbicacion'] as String).trim(),
-          coordinates: coordsText,
-        );
-
-        setState(() {
-          _apiSpaces.insert(0, created); // mantiene tus 5 defaults arriba
-        });
-
-        _showSnack('Espacio agregado.');
-      } else if (resp.statusCode == 422) {
-        _showSnack('Datos inválidos (422). Revisa nombre y enlace.', isError: true);
-      } else {
-        _showSnack(
-          'No se pudo crear el espacio (HTTP ${resp.statusCode}).',
-          isError: true,
-        );
-      }
-    } catch (e) {
-      _showSnack('Error al crear espacio: $e', isError: true);
-    }
-  }
-
-
-
-  Future<void> _openOnMap(RunningSpace space) async {
-    // Conectividad (el mapa en línea lo requiere)
-    final conn = await Connectivity().checkConnectivity();
-    if (conn == ConnectivityResult.none) {
-      _showSnack('No hay conexión a internet para mostrar el mapa.', isError: true);
-      return;
-    }
-
-    String routeCoords = space.coordinates;
-
-    // a) Si hay link, intentamos resolverlo a lat,lng
-    if ((space.link ?? '').isNotEmpty) {
-      final resolved = await _resolveLatLngFromAnyLink(space.link!.trim());
-      if (resolved != null) {
-        routeCoords = 'Coordenadas: ${resolved.$1}, ${resolved.$2}';
-      } else {
-        // b) Si el link no trae coords, intentamos extraer de "Coordenadas: x, y" si existen
-        final fromText = _parseLatLngFromLinkOrText(space.coordinates.replaceFirst('Coordenadas:', '').trim());
-        if (fromText != null) {
-          routeCoords = 'Coordenadas: ${fromText.$1}, ${fromText.$2}';
-        }
-        // c) Si tampoco, dejamos el texto como está (tu MapDetail tiene fallback interno)
-      }
-    } else {
-      // No hay link: intentamos parsear coords del texto
-      final fromText = _parseLatLngFromLinkOrText(space.coordinates.replaceFirst('Coordenadas:', '').trim());
-      if (fromText != null) {
-        routeCoords = 'Coordenadas: ${fromText.$1}, ${fromText.$2}';
-      }
-    }
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => MapDetailScreen(
-          routeTitle: space.title,
-          routeCoordinates: routeCoords,
-          mapImagePath: space.mapImagePath,
-        ),
-      ),
-    );
-  }
-
-
-  void _showAddSpaceModal() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: _AddSpaceSheet(
-            onAddSpace: _addSpace,
-          ),
-        );
-      },
-    );
-  }
-
-  // --- FUNCIÓN: límite de 5 notas (UI local, no persiste en este CU) ---
-  void _showAddNoteModal(RunningSpace space) {
-    if (space.notes.length >= 5) {
-      _showSnack('No puedes agregar más de 5 notas por espacio.', isError: true);
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: _AddNoteSheet(
-            onSave: (newNote) {
-              setState(() {
-                if (newNote.isNotEmpty) {
-                  space.notes.add(newNote);
-                }
-              });
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  void _showEditNoteModal(RunningSpace space, int noteIndex) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: _AddNoteSheet(
-            initialNote: space.notes[noteIndex],
-            onSave: (editedNote) {
-              setState(() {
-                if (editedNote.isNotEmpty) {
-                  space.notes[noteIndex] = editedNote;
-                } else {
-                  space.notes.removeAt(noteIndex);
-                }
-              });
-            },
-          ),
-        );
-      },
-    );
-  }
-
-  void _deleteNote(RunningSpace space, int noteIndex) {
-    setState(() {
-      space.notes.removeAt(noteIndex);
-    });
-  }
-
-  void _updateSafety(RunningSpace space, SpaceSafety newSafety) {
-    setState(() {
-      space.safety = newSafety; // UI local (otro CU)
-    });
   }
 
   void _showSnack(String msg, {bool isError = false}) {
@@ -568,10 +272,345 @@ class _VistaEspaciosState extends State<VistaEspacios> {
     );
   }
 
+  // ===== Notas: API =====
+  Future<List<SpaceNote>> _fetchNotesForSpace(int espacioId) async {
+    try {
+      final headers = await _authHeaders();
+      final url = Uri.parse('$_baseUrl/espacios/$espacioId/notas');
+      final resp = await http.get(url, headers: headers);
+      if (resp.statusCode == 200) {
+        final list = jsonDecode(resp.body) as List<dynamic>;
+        return list.map((e) => SpaceNote.fromApi(e as Map<String, dynamic>)).toList();
+      } else {
+        _showSnack('No se pudieron cargar notas (HTTP ${resp.statusCode}).', isError: true);
+      }
+    } catch (e) {
+      _showSnack('Error al obtener notas: $e', isError: true);
+    }
+    return <SpaceNote>[];
+  }
+
+  Future<SpaceNote?> _createNoteApi(int espacioId, String content) async {
+    try {
+      final headers = await _authHeaders();
+      final url = Uri.parse('$_baseUrl/espacios/$espacioId/notas');
+      final resp = await http.post(url, headers: headers, body: jsonEncode({'contenido': content}));
+      if (resp.statusCode == 201) {
+        return SpaceNote.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
+      } else if (resp.statusCode == 409) {
+        _showSnack('Límite de 5 notas alcanzado para este espacio.', isError: true);
+      } else {
+        _showSnack('No se pudo crear la nota (HTTP ${resp.statusCode}).', isError: true);
+      }
+    } catch (e) {
+      _showSnack('Error al crear nota: $e', isError: true);
+    }
+    return null;
+  }
+
+  Future<bool> _updateNoteApi(int espacioId, SpaceNote note) async {
+    try {
+      final headers = await _authHeaders();
+      final url = Uri.parse('$_baseUrl/espacios/$espacioId/notas/${note.id}');
+      final resp = await http.put(url, headers: headers, body: jsonEncode(note.toApiUpdate()));
+      if (resp.statusCode == 200) return true;
+      _showSnack('No se pudo actualizar la nota (HTTP ${resp.statusCode}).', isError: true);
+    } catch (e) {
+      _showSnack('Error al actualizar nota: $e', isError: true);
+    }
+    return false;
+  }
+
+  Future<bool> _deleteNoteApi(int espacioId, int notaId) async {
+    try {
+      final headers = await _authHeaders();
+      final url = Uri.parse('$_baseUrl/espacios/$espacioId/notas/$notaId');
+      final resp = await http.delete(url, headers: headers);
+      if (resp.statusCode == 200) return true;
+      _showSnack('No se pudo eliminar la nota (HTTP ${resp.statusCode}).', isError: true);
+    } catch (e) {
+      _showSnack('Error al eliminar nota: $e', isError: true);
+    }
+    return false;
+  }
+
+  // ===== Espacios: listar/crear =====
+  Future<void> _fetchSpaces() async {
+    setState(() => _loading = true);
+    try {
+      final headers = await _authHeaders();
+      final url = Uri.parse('$_baseUrl/espacios');
+      final resp = await http.get(url, headers: headers);
+
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as List<dynamic>;
+        final items = data.map((e) => RunningSpace.fromJson(e as Map<String, dynamic>)).toList();
+
+        setState(() {
+          _apiSpaces
+            ..clear()
+            ..addAll(items);
+        });
+
+        await Future.wait(_apiSpaces.where((s) => s.espacioId != null).map((s) async {
+          final notes = await _fetchNotesForSpace(s.espacioId!);
+          setState(() => s.notes = notes);
+        }));
+      } else {
+        _showSnack('No se pudo obtener la lista de espacios (HTTP ${resp.statusCode}).', isError: true);
+      }
+    } catch (e) {
+      _showSnack('Error al obtener espacios: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _addSpace(String name, String? link) async {
+    final nameTrim = name.trim();
+    final linkTrim = (link ?? '').trim();
+
+    if (nameTrim.isEmpty) {
+      _showSnack('El nombre es obligatorio.', isError: true);
+      return;
+    }
+    if (linkTrim.isEmpty) {
+      _showSnack('El link es obligatorio.', isError: true);
+      return;
+    }
+
+    // No bloqueamos por validación de red: aceptamos maps.app.goo.gl tal cual.
+    // Si el usuario pega "lat,lng", lo convertimos a URL canónica de Google Maps.
+    final plain = _parseLatLngFromLinkOrText(linkTrim);
+    final enlaceParaGuardar =
+        (plain != null) ? _canonicalGoogleMapsUrlFromLatLng(plain.$1, plain.$2) : linkTrim;
+
+    try {
+      final headers = await _authHeaders();
+      final url = Uri.parse('$_baseUrl/espacios');
+
+      final body = jsonEncode({
+        'nombreEspacio': nameTrim,
+        'enlaceUbicacion': enlaceParaGuardar,
+        // 'semaforo' opcional, no lo enviamos aquí
+      });
+
+      final resp = await http.post(url, headers: headers, body: body);
+      if (resp.statusCode == 200) {
+        final j = jsonDecode(resp.body) as Map<String, dynamic>;
+
+        // Intentamos deducir coords SOLO para la pantalla de mapa; no se muestran en la lista.
+        final parsedAfter = _parseLatLngFromLinkOrText(j['enlaceUbicacion'] as String? ?? '');
+        final coordsText = (parsedAfter != null)
+            ? 'Coordenadas: ${parsedAfter.$1}, ${parsedAfter.$2}'
+            : 'Coordenadas no disponibles';
+
+        final created = RunningSpace(
+          espacioId: (j['espacio_id'] as num?)?.toInt(),
+          corredorId: (j['corredor_id'] as num?)?.toInt(),
+          title: (j['nombreEspacio'] as String?)?.trim() ?? 'Sin nombre',
+          link: ((j['enlaceUbicacion'] as String?)?.trim().isEmpty ?? true)
+              ? null
+              : (j['enlaceUbicacion'] as String).trim(),
+          coordinates: coordsText,
+          imagePath: _assetForSpaceTitle((j['nombreEspacio'] as String?)?.trim() ?? ''),
+        );
+
+        setState(() {
+          _apiSpaces.insert(0, created);
+        });
+
+        _showSnack('Espacio agregado.');
+      } else if (resp.statusCode == 422) {
+        _showSnack('Datos inválidos (422). Revisa nombre y enlace.', isError: true);
+      } else {
+        _showSnack('No se pudo crear el espacio (HTTP ${resp.statusCode}).', isError: true);
+      }
+    } catch (e) {
+      _showSnack('Error al crear espacio: $e', isError: true);
+    }
+  }
+
+  Future<void> _openOnMap(RunningSpace space) async {
+    final conn = await Connectivity().checkConnectivity();
+    if (conn == ConnectivityResult.none) {
+      _showSnack('No hay conexión para mostrar el mapa.', isError: true);
+      return;
+    }
+
+    String? lat;
+    String? lng;
+
+    if ((space.link ?? '').isNotEmpty) {
+      final resolved = await _resolveLatLngFromAnyLink(space.link!.trim());
+      if (resolved != null) {
+        lat = resolved.$1;
+        lng = resolved.$2;
+      }
+    }
+    if (lat == null || lng == null) {
+      final parsed = _parseLatLngFromLinkOrText(space.coordinates.replaceFirst('Coordenadas:', '').trim());
+      if (parsed != null) {
+        lat = parsed.$1;
+        lng = parsed.$2;
+      }
+    }
+    if (lat == null || lng == null) {
+      _showSnack('No se pudieron resolver coordenadas de este link.', isError: true);
+      return;
+    }
+
+    final routeCoords = 'Coordenadas: $lat, $lng';
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MapDetailScreen(
+          routeTitle: space.title,
+          routeCoordinates: routeCoords,
+          mapImagePath: space.mapImagePath,
+        ),
+      ),
+    );
+  }
+
+  void _showAddSpaceModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: _AddSpaceSheet(onAddSpace: _addSpace),
+        );
+      },
+    );
+  }
+
+  void _showAddNoteModal(RunningSpace space) {
+    if (space.espacioId == null) {
+      _showSnack('Para agregar notas, primero guarda este espacio en tu cuenta.', isError: true);
+      return;
+    }
+    if (space.notes.length >= 5) {
+      _showSnack('No puedes agregar más de 5 notas por espacio.', isError: true);
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: _AddNoteSheet(
+            onSave: (newNote) async {
+              final trimmed = newNote.trim();
+              if (trimmed.isEmpty) {
+                _showSnack('La nota no puede estar vacía.', isError: true);
+                return;
+              }
+              final created = await _createNoteApi(space.espacioId!, trimmed);
+              if (created != null) {
+                setState(() => space.notes.add(created));
+                _showSnack('Nota agregada.');
+              }
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  void _showEditNoteModal(RunningSpace space, int noteIndex) {
+    if (space.espacioId == null) return;
+    final note = space.notes[noteIndex];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: _AddNoteSheet(
+            initialNote: note.content,
+            onSave: (edited) async {
+              final trimmed = edited.trim();
+              if (trimmed.isEmpty) {
+                _showSnack('La nota no puede estar vacía.', isError: true);
+                return;
+              }
+              final backup = note.content;
+              setState(() => note.content = trimmed);
+              final ok = await _updateNoteApi(space.espacioId!, note);
+              if (ok) {
+                _showSnack('Nota actualizada.');
+              } else {
+                setState(() => note.content = backup);
+              }
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  void _deleteNote(RunningSpace space, int noteIndex) async {
+    if (space.espacioId == null) return;
+    final note = space.notes[noteIndex];
+    final ok = await _deleteNoteApi(space.espacioId!, note.id);
+    if (ok) {
+      setState(() => space.notes.removeAt(noteIndex));
+      _showSnack('Nota eliminada.');
+    }
+  }
+
+  Future<bool> _updateSafetyApi(int espacioId, SpaceSafety newSafety) async {
+    try {
+      final headers = await _authHeaders();
+      final n = () {
+        switch (newSafety) {
+          case SpaceSafety.unsafe:
+            return 0;
+          case SpaceSafety.partiallySafe:
+            return 1;
+          case SpaceSafety.safe:
+            return 2;
+          case SpaceSafety.none:
+            return null; // no se usa en el slider
+        }
+      }();
+      if (n == null) return false;
+      final url = Uri.parse('$_baseUrl/espacios/$espacioId/semaforo?n=$n');
+      final resp = await http.patch(url, headers: headers);
+      return resp.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _updateSafety(RunningSpace space, SpaceSafety newSafety) async {
+    if (space.espacioId == null) {
+      _showSnack('Primero guarda este espacio en tu cuenta para poder calificarlo.', isError: true);
+      return;
+    }
+    final prev = space.safety;
+    setState(() => space.safety = newSafety); // actualización optimista
+    final ok = await _updateSafetyApi(space.espacioId!, newSafety);
+    if (!ok) {
+      setState(() => space.safety = prev); // revertir si falló
+      _showSnack('No se pudo actualizar el semáforo. Intenta de nuevo.', isError: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // combinamos 5 defaults + espacios del backend
-    final combined = <RunningSpace>[..._defaultSpaces, ..._apiSpaces];
+    final combined = _apiSpaces; // solo API
 
     return Scaffold(
       body: SafeArea(
@@ -601,9 +640,7 @@ class _VistaEspaciosState extends State<VistaEspacios> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      combined.isEmpty
-                          ? 'Sin espacios'
-                          : '${combined.length} espacio(s)',
+                      combined.isEmpty ? 'Sin espacios' : '${combined.length} espacio(s)',
                       style: const TextStyle(color: Colors.grey),
                     ),
                   ],
@@ -632,10 +669,7 @@ class _VistaEspaciosState extends State<VistaEspacios> {
                 icon: const Icon(Icons.add_location_alt_outlined),
                 label: const Text('Agregar espacio'),
                 style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 16,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
                 ),
               ),
             ),
@@ -646,7 +680,7 @@ class _VistaEspaciosState extends State<VistaEspacios> {
   }
 }
 
-// --- WIDGET PARA AGREGAR NUEVO ESPACIO (usa POST /espacios) ---
+// --- MODAL para agregar nuevo espacio ---
 class _AddSpaceSheet extends StatefulWidget {
   final Future<void> Function(String name, String? link) onAddSpace;
   const _AddSpaceSheet({required this.onAddSpace});
@@ -675,11 +709,10 @@ class _AddSpaceSheetState extends State<_AddSpaceSheet> {
     try {
       await widget.onAddSpace(
         _nameController.text.trim(),
-        _linkController.text.trim().isEmpty ? null : _linkController.text.trim(),
+        _linkController.text.trim(),
       );
       if (mounted) Navigator.of(context).pop();
-    } catch (e) {
-      // El onAddSpace ya muestra SnackBars; aquí solo aseguramos no cerrar.
+    } catch (_) {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -691,9 +724,7 @@ class _AddSpaceSheetState extends State<_AddSpaceSheet> {
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
       decoration: const BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(20), topRight: Radius.circular(20),
-        ),
+        borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
       ),
       child: Form(
         key: _formKey,
@@ -706,8 +737,7 @@ class _AddSpaceSheetState extends State<_AddSpaceSheet> {
               children: [
                 const Text(
                   'Agregar Nuevo Espacio',
-                  style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.grey),
@@ -726,9 +756,11 @@ class _AddSpaceSheetState extends State<_AddSpaceSheet> {
             TextFormField(
               controller: _linkController,
               decoration: const InputDecoration(
-                labelText: 'Link del espacio (opcional)',
-                hintText: 'https://maps.google.com/… o lat,lng',
+                labelText: 'Link del espacio *',
+                hintText: 'https://maps.app.goo.gl/… o https://maps.google.com/… o lat,lng',
               ),
+              validator: (value) =>
+                  (value == null || value.trim().isEmpty) ? 'Ingresa un link.' : null,
             ),
             const SizedBox(height: 20),
             SizedBox(
@@ -737,8 +769,7 @@ class _AddSpaceSheetState extends State<_AddSpaceSheet> {
               child: ElevatedButton(
                 onPressed: _saving ? null : _submit,
                 child: _saving
-                    ? const SizedBox(
-                        width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Text('Agregar Espacio'),
               ),
             ),
@@ -749,7 +780,7 @@ class _AddSpaceSheetState extends State<_AddSpaceSheet> {
   }
 }
 
-// --- WIDGET MODAL PARA AGREGAR/EDITAR NOTA (UI local) ---
+// --- MODAL para agregar/editar nota ---
 class _AddNoteSheet extends StatefulWidget {
   final String? initialNote;
   final Function(String) onSave;
@@ -788,9 +819,7 @@ class _AddNoteSheetState extends State<_AddNoteSheet> {
       padding: const EdgeInsets.all(24.0),
       decoration: const BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(20), topRight: Radius.circular(20),
-        ),
+        borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -825,7 +854,7 @@ class _AddNoteSheetState extends State<_AddNoteSheet> {
   }
 }
 
-// --- TARJETA DE ESPACIO (se agrega callback onSeeMap) ---
+// --- CARD de espacio ---
 class _RouteCard extends StatelessWidget {
   final RunningSpace space;
   final VoidCallback onAddNote;
@@ -862,11 +891,7 @@ class _RouteCard extends StatelessWidget {
                 height: 150,
                 color: Colors.grey[800],
                 child: const Center(
-                  child: Icon(
-                    Icons.image_not_supported,
-                    color: Colors.white54,
-                    size: 50,
-                  ),
+                  child: Icon(Icons.image_not_supported, color: Colors.white54, size: 50),
                 ),
               );
             },
@@ -900,11 +925,7 @@ class _RouteCard extends StatelessWidget {
                   safety: space.safety,
                   onChanged: (newSafety) => onSafetyChanged(newSafety),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  space.coordinates,
-                  style: const TextStyle(color: Colors.white70),
-                ),
+                // 👇 Ya no mostramos las coordenadas en la tarjeta
                 if (space.notes.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   const Divider(color: Colors.white24),
@@ -913,7 +934,7 @@ class _RouteCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: space.notes.asMap().entries.map((entry) {
                       final idx = entry.key;
-                      final note = entry.value;
+                      final SpaceNote note = entry.value;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 4.0),
                         child: Row(
@@ -922,9 +943,8 @@ class _RouteCard extends StatelessWidget {
                             const Text('• ', style: TextStyle(color: Colors.grey)),
                             Expanded(
                               child: Text(
-                                note,
-                                style: const TextStyle(
-                                  color: Colors.grey, fontStyle: FontStyle.italic),
+                                note.content,
+                                style: const TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
                               ),
                             ),
                             SizedBox(
@@ -970,7 +990,7 @@ class _RouteCard extends StatelessWidget {
   }
 }
 
-// --- SLIDER DE 3 PUNTOS (UI local; no persiste en este CU) ---
+// --- SLIDER del semáforo (UI local) ---
 class _SafetySlider extends StatelessWidget {
   final SpaceSafety safety;
   final Function(SpaceSafety) onChanged;
@@ -1068,9 +1088,7 @@ class _SafetySlider extends StatelessWidget {
   }
 }
 
-// --- TRACK DEL SLIDER (UI) ---
-class _GradientRectSliderTrackShape extends SliderTrackShape
-    with BaseSliderTrackShape {
+class _GradientRectSliderTrackShape extends SliderTrackShape with BaseSliderTrackShape {
   const _GradientRectSliderTrackShape();
 
   @override
@@ -1101,8 +1119,7 @@ class _GradientRectSliderTrackShape extends SliderTrackShape
     final Paint paint = Paint()..shader = gradient.createShader(trackRect);
 
     context.canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        trackRect, Radius.circular(trackRect.height / 2)),
+      RRect.fromRectAndRadius(trackRect, Radius.circular(trackRect.height / 2)),
       paint,
     );
   }

@@ -10,7 +10,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'vista_estadistica.dart';
 
-
 import '../main.dart'; // colores
 
 // =============================
@@ -287,7 +286,9 @@ class _VistaCalendarioState extends State<VistaCalendario> {
   // =============================
   Future<void> _saveRace(String title, DateTime dateTime, RaceStatus status,
       {Race? existingRace}) async {
-    if (!dateTime.isAfter(DateTime.now())) {
+    // ✅ Validar "futura" SOLO si es creación (sin existingRace) o si es borrador local (id < 0)
+    final mustBeFuture = (existingRace == null) || (existingRace.id < 0);
+    if (mustBeFuture && !dateTime.isAfter(DateTime.now())) {
       _showSnack('La carrera debe programarse en una fecha y hora futura.');
       return;
     }
@@ -300,7 +301,7 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       existingRace.status = status;
       existingRace.tzOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
 
-      // (1) Si es local (id<0): intentamos CREAR en servidor
+      // (1) Si es local (id<0): realmente es "creación" (POST)
       if (existingRace.id < 0) {
         try {
           final resp = await http.post(
@@ -317,13 +318,11 @@ class _VistaCalendarioState extends State<VistaCalendario> {
             if (idx != -1) _races[idx] = created;
             _showSnack('Carrera registrada.');
           } else {
-            // error de servidor => revertimos a backup y avisamos
             final idx = _races.indexWhere((r) => r.id == existingRace.id);
             if (idx != -1) _races[idx] = backup;
             _showSnack('Error (${resp.statusCode}): ${resp.body}');
           }
         } on SocketException catch (_) {
-          // sin conexión: dejamos edición local
           _showSnack('Sin conexión. Cambios guardados sólo localmente.');
         } on TimeoutException catch (_) {
           _showSnack('Sin conexión (timeout). Cambios locales.');
@@ -331,7 +330,7 @@ class _VistaCalendarioState extends State<VistaCalendario> {
           _showSnack('Sin conexión. Cambios locales.');
         }
       } else {
-        // (2) Es remota (id>0): PUT
+        // (2) Remota (id>0): PUT (sin validar "futura")
         try {
           final resp = await http.put(
             Uri.parse('$_baseUrl/carreras/${existingRace.id}'),
@@ -344,7 +343,7 @@ class _VistaCalendarioState extends State<VistaCalendario> {
           if (resp.statusCode == 200) {
             _showSnack('Carrera actualizada correctamente');
           } else {
-            // error de servidor => revertimos
+            // revertimos en error de servidor
             existingRace.title = backup.title;
             existingRace.dateTime = backup.dateTime;
             existingRace.status = backup.status;
@@ -352,7 +351,6 @@ class _VistaCalendarioState extends State<VistaCalendario> {
             _showSnack('Error (${resp.statusCode}): ${resp.body}');
           }
         } on SocketException catch (_) {
-          // sin conexión: mantenemos edición local
           _showSnack('Sin conexión. Cambios guardados sólo localmente.');
         } on TimeoutException catch (_) {
           _showSnack('Sin conexión (timeout). Cambios locales.');
@@ -364,10 +362,9 @@ class _VistaCalendarioState extends State<VistaCalendario> {
 
     // ===== NUEVA =====
     else {
-      // primero intentamos POST; si falla por red, entonces creamos local
       try {
         final draft = Race(
-          id: 0, // temporal, no se usará si sale bien
+          id: 0, // temporal; si sale bien el POST no se usa
           title: title,
           dateTime: dateTime,
           status: status,
@@ -387,7 +384,6 @@ class _VistaCalendarioState extends State<VistaCalendario> {
           _races.add(created);
           _showSnack('Carrera registrada.');
         } else {
-          // error del servidor: NO guardamos local (para no duplicar)
           _showSnack('Error (${resp.statusCode}): ${resp.body}');
         }
       } on SocketException catch (_) {
@@ -558,6 +554,8 @@ class _VistaCalendarioState extends State<VistaCalendario> {
               children: [
                 _buildTableCalendar(),
                 const Divider(height: 1),
+
+                // ---------- Encabezado: "Carreras del día" + botón "+" ----------
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
                   child: Row(
@@ -569,9 +567,17 @@ class _VistaCalendarioState extends State<VistaCalendario> {
                             .titleLarge
                             ?.copyWith(fontWeight: FontWeight.bold),
                       ),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: 'Nueva carrera',
+                        onPressed: () => _showRaceForm(selectedDay: _selectedDay),
+                        icon: const Icon(Icons.add_circle_outline),
+                      ),
                     ],
                   ),
                 ),
+
+                // ---------- Lista de eventos del día ----------
                 Expanded(
                   child: selectedDayEvents.isEmpty
                       ? _buildEmptyDay()
@@ -579,14 +585,23 @@ class _VistaCalendarioState extends State<VistaCalendario> {
                 ),
               ],
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'fab_add_race',
-        onPressed: () => _showRaceForm(selectedDay: _selectedDay),
-        icon: const Icon(Icons.add),
-        label: const Text('Nueva carrera'),
+
+      // ---------- FAB pequeño y discreto ----------
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButton: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8.0, right: 8.0),
+          child: FloatingActionButton.small(
+            onPressed: () => _showRaceForm(selectedDay: _selectedDay),
+            backgroundColor: primaryColor,
+            foregroundColor: Colors.black,
+            child: const Icon(Icons.add),
+          ),
+        ),
       ),
     );
   }
+
 
   Widget _buildTableCalendar() {
     return TableCalendar<Race>(
@@ -637,8 +652,11 @@ class _VistaCalendarioState extends State<VistaCalendario> {
   }
 
   Widget _buildEventList(List<Race> events) {
+    // Deja espacio suficiente abajo para que el FAB nunca tape la última tarjeta
+    final extraBottom = MediaQuery.of(context).padding.bottom + 80;
+
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.fromLTRB(16, 0, 16, extraBottom),
       itemCount: events.length,
       itemBuilder: (context, index) {
         final race = events[index];
@@ -651,6 +669,7 @@ class _VistaCalendarioState extends State<VistaCalendario> {
       },
     );
   }
+
 
   Widget _buildEmptyDay() {
     return Center(
