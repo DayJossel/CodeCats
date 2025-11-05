@@ -243,10 +243,10 @@ class VistaEspacios extends StatefulWidget {
   const VistaEspacios({super.key});
 
   @override
-  State<VistaEspacios> createState() => _EstadoVistaEspacios();
+  State<VistaEspacios> createState() => EstadoVistaEspacios();
 }
 
-class _EstadoVistaEspacios extends State<VistaEspacios> {
+class EstadoVistaEspacios extends State<VistaEspacios> {
   final List<EspacioParaCorrer> _espaciosApi = [];
   bool _cargando = false;
 
@@ -517,7 +517,7 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
       builder: (context) {
         return Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: _HojaAgregarEspacio(onAddSpace: _agregarEspacio),
+          child: HojaAgregarEspacio(onAddSpace: _agregarEspacio),
         );
       },
     );
@@ -540,7 +540,7 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
       builder: (context) {
         return Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: _HojaAgregarEditarNota(
+          child: HojaAgregarEditarNota(
             onSave: (nuevaNota) async {
               final trimmed = nuevaNota.trim();
               if (trimmed.isEmpty) {
@@ -570,7 +570,7 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
       builder: (context) {
         return Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: _HojaAgregarEditarNota(
+          child: HojaAgregarEditarNota(
             notaInicial: nota.contenido,
             onSave: (editada) async {
               final trimmed = editada.trim();
@@ -682,7 +682,7 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
                 ...lista.map(
                   (e) => Padding(
                     padding: const EdgeInsets.only(bottom: 20.0),
-                    child: _TarjetaEspacio(
+                    child: TarjetaEspacio(
                       espacio: e,
                       onAgregarNota: () => _mostrarModalAgregarNota(e),
                       onEliminarNota: (i) => _eliminarNota(e, i),
@@ -714,15 +714,15 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
 }
 
 // --- MODAL para agregar nuevo espacio ---
-class _HojaAgregarEspacio extends StatefulWidget {
+class HojaAgregarEspacio extends StatefulWidget {
   final Future<void> Function(String nombre, String? enlace) onAddSpace;
-  const _HojaAgregarEspacio({required this.onAddSpace});
+  const HojaAgregarEspacio({required this.onAddSpace});
 
   @override
-  State<_HojaAgregarEspacio> createState() => _EstadoHojaAgregarEspacio();
+  State<HojaAgregarEspacio> createState() => EstadoHojaAgregarEspacio();
 }
 
-class _EstadoHojaAgregarEspacio extends State<_HojaAgregarEspacio> {
+class EstadoHojaAgregarEspacio extends State<HojaAgregarEspacio> {
   final _claveFormulario = GlobalKey<FormState>();
   final _ctrlNombre = TextEditingController();
   final _ctrlEnlace = TextEditingController();
@@ -812,17 +812,17 @@ class _EstadoHojaAgregarEspacio extends State<_HojaAgregarEspacio> {
 }
 
 // --- MODAL para agregar/editar nota ---
-class _HojaAgregarEditarNota extends StatefulWidget {
+class HojaAgregarEditarNota extends StatefulWidget {
   final String? notaInicial;
   final Function(String) onSave;
 
-  const _HojaAgregarEditarNota({this.notaInicial, required this.onSave});
+  const HojaAgregarEditarNota({this.notaInicial, required this.onSave});
 
   @override
-  State<_HojaAgregarEditarNota> createState() => _EstadoHojaAgregarEditarNota();
+  State<HojaAgregarEditarNota> createState() => EstadoHojaAgregarEditarNota();
 }
 
-class _EstadoHojaAgregarEditarNota extends State<_HojaAgregarEditarNota> {
+class EstadoHojaAgregarEditarNota extends State<HojaAgregarEditarNota> {
   late final TextEditingController _ctrlNota;
 
   @override
@@ -886,7 +886,7 @@ class _EstadoHojaAgregarEditarNota extends State<_HojaAgregarEditarNota> {
 }
 
 // --- CARD de espacio ---
-class _TarjetaEspacio extends StatelessWidget {
+class TarjetaEspacio extends StatelessWidget {
   final EspacioParaCorrer espacio;
   final VoidCallback onAgregarNota;
   final Function(int) onEliminarNota;
@@ -894,7 +894,7 @@ class _TarjetaEspacio extends StatelessWidget {
   final Function(SeguridadEspacio) onCambiarSemaforo;
   final VoidCallback onVerMapa;
 
-  const _TarjetaEspacio({
+  const TarjetaEspacio({
     required this.espacio,
     required this.onAgregarNota,
     required this.onEliminarNota,
@@ -950,7 +950,7 @@ class _TarjetaEspacio extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                _ControlSemaforo(
+                ControlSemaforo(
                   semaforo: espacio.semaforo,
                   onChanged: (nuevo) => onCambiarSemaforo(nuevo),
                 ),
@@ -1019,11 +1019,11 @@ class _TarjetaEspacio extends StatelessWidget {
 }
 
 // --- SLIDER del semáforo (UI local) ---
-class _ControlSemaforo extends StatelessWidget {
+class ControlSemaforo extends StatelessWidget {
   final SeguridadEspacio semaforo;
   final Function(SeguridadEspacio) onChanged;
 
-  const _ControlSemaforo({
+  const ControlSemaforo({
     required this.semaforo,
     required this.onChanged,
   });
@@ -1082,7 +1082,7 @@ class _ControlSemaforo extends StatelessWidget {
               trackHeight: 8,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 20),
-              trackShape: const _PistaDeslizadorGradiente(),
+              trackShape: const PistaDeslizadorGradiente(),
             ),
             child: Slider(
               value: _valorSlider(semaforo),
@@ -1116,8 +1116,8 @@ class _ControlSemaforo extends StatelessWidget {
   }
 }
 
-class _PistaDeslizadorGradiente extends SliderTrackShape with BaseSliderTrackShape {
-  const _PistaDeslizadorGradiente();
+class PistaDeslizadorGradiente extends SliderTrackShape with BaseSliderTrackShape {
+  const PistaDeslizadorGradiente();
 
   @override
   void paint(

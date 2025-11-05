@@ -10,7 +10,7 @@ class PantallaPerfil extends StatefulWidget {
   const PantallaPerfil({super.key});
 
   @override
-  State<PantallaPerfil> createState() => _EstadoPantallaPerfil();
+  State<PantallaPerfil> createState() => EstadoPantallaPerfil();
 }
 
 // Compatibilidad
@@ -18,7 +18,7 @@ class ProfileScreen extends PantallaPerfil {
   const ProfileScreen({super.key});
 }
 
-class _EstadoPantallaPerfil extends State<PantallaPerfil> {
+class EstadoPantallaPerfil extends State<PantallaPerfil> {
   String nombre = '';
   String correo = '';
   String telefono = '';
@@ -173,19 +173,19 @@ class _EstadoPantallaPerfil extends State<PantallaPerfil> {
               ),
             ),
             const SizedBox(height: 30),
-            const _TituloSeccion(titulo: 'Información Personal'),
+            const TituloSeccion(titulo: 'Información Personal'),
             const SizedBox(height: 16),
-            _InfoTile(etiqueta: 'Nombre Completo', valor: nombre),
+            InfoTile(etiqueta: 'Nombre Completo', valor: nombre),
             const SizedBox(height: 16),
-            _InfoTile(etiqueta: 'Email', valor: correo),
+            InfoTile(etiqueta: 'Email', valor: correo),
             const SizedBox(height: 16),
-            _InfoTile(etiqueta: 'Número de Teléfono', valor: telefono),
+            InfoTile(etiqueta: 'Número de Teléfono', valor: telefono),
             const SizedBox(height: 30),
-            const _TituloSeccion(titulo: 'Cuenta'),
+            const TituloSeccion(titulo: 'Cuenta'),
             const SizedBox(height: 16),
-            _BotonAccionCuenta(texto: 'Cerrar Sesión', icono: Icons.logout, onTap: _cerrarSesion),
+            BotonAccionCuenta(texto: 'Cerrar Sesión', icono: Icons.logout, onTap: _cerrarSesion),
             const SizedBox(height: 16),
-            _BotonAccionCuenta(
+            BotonAccionCuenta(
               texto: 'Eliminar Cuenta',
               icono: Icons.delete_outline,
               colorTexto: accentColor,
@@ -199,9 +199,9 @@ class _EstadoPantallaPerfil extends State<PantallaPerfil> {
 }
 
 // Reutilizables
-class _TituloSeccion extends StatelessWidget {
+class TituloSeccion extends StatelessWidget {
   final String titulo;
-  const _TituloSeccion({required this.titulo});
+  const TituloSeccion({required this.titulo});
   @override
   Widget build(BuildContext context) => Text(
         titulo,
@@ -209,10 +209,10 @@ class _TituloSeccion extends StatelessWidget {
       );
 }
 
-class _InfoTile extends StatelessWidget {
+class InfoTile extends StatelessWidget {
   final String etiqueta;
   final String valor;
-  const _InfoTile({required this.etiqueta, required this.valor});
+  const InfoTile({required this.etiqueta, required this.valor});
   @override
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -229,12 +229,12 @@ class _InfoTile extends StatelessWidget {
       );
 }
 
-class _BotonAccionCuenta extends StatelessWidget {
+class BotonAccionCuenta extends StatelessWidget {
   final String texto;
   final IconData icono;
   final VoidCallback onTap;
   final Color colorTexto;
-  const _BotonAccionCuenta({
+  const BotonAccionCuenta({
     required this.texto,
     required this.icono,
     required this.onTap,

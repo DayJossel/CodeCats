@@ -10,7 +10,7 @@ class PantallaAutenticacion extends StatefulWidget {
   const PantallaAutenticacion({super.key});
 
   @override
-  State<PantallaAutenticacion> createState() => _EstadoPantallaAutenticacion();
+  State<PantallaAutenticacion> createState() => EstadoPantallaAutenticacion();
 }
 
 // Compatibilidad con código que referencie AuthScreen
@@ -18,7 +18,7 @@ class AuthScreen extends PantallaAutenticacion {
   const AuthScreen({super.key});
 }
 
-class _EstadoPantallaAutenticacion extends State<PantallaAutenticacion> {
+class EstadoPantallaAutenticacion extends State<PantallaAutenticacion> {
   bool _esLogin = true;
 
   void _alternarModo() {
@@ -34,8 +34,8 @@ class _EstadoPantallaAutenticacion extends State<PantallaAutenticacion> {
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
           child: _esLogin
-              ? _VistaLogin(onToggle: _alternarModo)
-              : _VistaRegistro(onToggle: _alternarModo),
+              ? VistaLogin(onToggle: _alternarModo)
+              : VistaRegistro(onToggle: _alternarModo),
         ),
       ),
     );
@@ -45,15 +45,15 @@ class _EstadoPantallaAutenticacion extends State<PantallaAutenticacion> {
 // ------------------------------------------------------------
 // VISTA DE INICIO DE SESIÓN
 // ------------------------------------------------------------
-class _VistaLogin extends StatefulWidget {
+class VistaLogin extends StatefulWidget {
   final VoidCallback onToggle;
-  const _VistaLogin({required this.onToggle});
+  const VistaLogin({required this.onToggle});
 
   @override
-  State<_VistaLogin> createState() => _EstadoVistaLogin();
+  State<VistaLogin> createState() => EstadoVistaLogin();
 }
 
-class _EstadoVistaLogin extends State<_VistaLogin> {
+class EstadoVistaLogin extends State<VistaLogin> {
   final correoController = TextEditingController();
   final contraseniaController = TextEditingController();
   bool _cargando = false;
@@ -183,15 +183,15 @@ class _EstadoVistaLogin extends State<_VistaLogin> {
 // ------------------------------------------------------------
 // VISTA DE CREAR CUENTA
 // ------------------------------------------------------------
-class _VistaRegistro extends StatefulWidget {
+class VistaRegistro extends StatefulWidget {
   final VoidCallback onToggle;
-  const _VistaRegistro({required this.onToggle});
+  const VistaRegistro({required this.onToggle});
 
   @override
-  State<_VistaRegistro> createState() => _EstadoVistaRegistro();
+  State<VistaRegistro> createState() => _EstadoVistaRegistro();
 }
 
-class _EstadoVistaRegistro extends State<_VistaRegistro> {
+class _EstadoVistaRegistro extends State<VistaRegistro> {
   final nombreController = TextEditingController();
   final correoController = TextEditingController();
   final contraseniaController = TextEditingController();

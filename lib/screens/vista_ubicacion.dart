@@ -47,10 +47,10 @@ class VistaUbicacion extends StatefulWidget {
   const VistaUbicacion({super.key});
 
   @override
-  State<VistaUbicacion> createState() => _EstadoVistaUbicacion();
+  State<VistaUbicacion> createState() => EstadoVistaUbicacion();
 }
 
-class _EstadoVistaUbicacion extends State<VistaUbicacion> {
+class EstadoVistaUbicacion extends State<VistaUbicacion> {
   List<ContactoVm> _contactos = [];
   final Set<int> _idsSeleccionados = {};
   bool _cargando = true;
@@ -111,7 +111,7 @@ class _EstadoVistaUbicacion extends State<VistaUbicacion> {
         _contactos.where((c) => _idsSeleccionados.contains(c.contactoId)).toList();
     showDialog(
       context: context,
-      builder: (context) => _DialogoConfirmacion(
+      builder: (context) => DialogoConfirmacion(
         selectedContacts: seleccion,
         onConfirm: (frequency, totalDuration) async {
           Navigator.of(context).pop(); // cierra diálogo de confirmación
@@ -228,7 +228,7 @@ $urlMapa
   void _mostrarDialogoExito(List<ContactoVm> selected) {
     showDialog(
       context: context,
-      builder: (context) => _DialogoExito(
+      builder: (context) => DialogoExito(
         selectedContacts: selected,
         onDone: () {
           Navigator.of(context).pop(); // cierra diálogo
@@ -300,7 +300,7 @@ $urlMapa
                           final c = _contactos[index];
                           final seleccionado =
                               _idsSeleccionados.contains(c.contactoId);
-                          return _ElementoContacto(
+                          return ElementoContacto(
                             contact: c,
                             isSelected: seleccionado,
                             onTap: () => _alTocarContacto(c),
@@ -341,12 +341,12 @@ $urlMapa
 // Widgets auxiliares
 // ==========================
 
-class _ElementoContacto extends StatelessWidget {
+class ElementoContacto extends StatelessWidget {
   final ContactoVm contact;
   final bool isSelected;
   final VoidCallback onTap;
 
-  const _ElementoContacto({
+  const ElementoContacto({
     required this.contact,
     required this.isSelected,
     required this.onTap,
@@ -386,20 +386,20 @@ class _ElementoContacto extends StatelessWidget {
   }
 }
 
-class _DialogoConfirmacion extends StatefulWidget {
+class DialogoConfirmacion extends StatefulWidget {
   final List<ContactoVm> selectedContacts;
   final void Function(Duration frequency, Duration totalDuration) onConfirm;
 
-  const _DialogoConfirmacion({
+  const DialogoConfirmacion({
     required this.selectedContacts,
     required this.onConfirm,
   });
 
   @override
-  State<_DialogoConfirmacion> createState() => _EstadoDialogoConfirmacion();
+  State<DialogoConfirmacion> createState() => EstadoDialogoConfirmacion();
 }
 
-class _EstadoDialogoConfirmacion extends State<_DialogoConfirmacion> {
+class EstadoDialogoConfirmacion extends State<DialogoConfirmacion> {
   String _selectedFrequency = '10 min';
   String _selectedDuration = '1h';
 
@@ -524,11 +524,11 @@ class _EstadoDialogoConfirmacion extends State<_DialogoConfirmacion> {
   }
 }
 
-class _DialogoExito extends StatelessWidget {
+class DialogoExito extends StatelessWidget {
   final List<ContactoVm> selectedContacts;
   final VoidCallback onDone;
 
-  const _DialogoExito({required this.selectedContacts, required this.onDone});
+  const DialogoExito({required this.selectedContacts, required this.onDone});
 
   @override
   Widget build(BuildContext context) {

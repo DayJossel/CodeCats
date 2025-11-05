@@ -60,18 +60,18 @@ class AppChita extends StatelessWidget {
           bodyMedium: TextStyle(color: Colors.grey),
         ),
       ),
-      home: const _PuertaAutenticacion(),
+      home: const PuertaAutenticacion(),
     );
   }
 }
 
-class _PuertaAutenticacion extends StatefulWidget {
-  const _PuertaAutenticacion({super.key});
+class PuertaAutenticacion extends StatefulWidget {
+  const PuertaAutenticacion({super.key});
   @override
-  State<_PuertaAutenticacion> createState() => _EstadoPuertaAutenticacion();
+  State<PuertaAutenticacion> createState() => EstadoPuertaAutenticacion();
 }
 
-class _EstadoPuertaAutenticacion extends State<_PuertaAutenticacion> {
+class EstadoPuertaAutenticacion extends State<PuertaAutenticacion> {
   Future<bool> _estaAutenticado() async {
     final id = await RepositorioSesion.obtenerCorredorId();
     final pwd = await RepositorioSesion.obtenerContrasenia();
@@ -98,10 +98,10 @@ class PantallaPrincipal extends StatefulWidget {
   const PantallaPrincipal({super.key});
 
   @override
-  State<PantallaPrincipal> createState() => _EstadoPantallaPrincipal();
+  State<PantallaPrincipal> createState() => EstadoPantallaPrincipal();
 }
 
-class _EstadoPantallaPrincipal extends State<PantallaPrincipal> {
+class EstadoPantallaPrincipal extends State<PantallaPrincipal> {
   int _indiceSeleccionado = 0;
 
   static final List<Widget> _opcionesWidgets = <Widget>[

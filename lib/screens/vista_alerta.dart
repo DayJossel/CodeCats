@@ -9,10 +9,10 @@ class VistaAlerta extends StatefulWidget {
   const VistaAlerta({super.key});
 
   @override
-  State<VistaAlerta> createState() => _EstadoVistaAlerta();
+  State<VistaAlerta> createState() => EstadoVistaAlerta();
 }
 
-class _EstadoVistaAlerta extends State<VistaAlerta> {
+class EstadoVistaAlerta extends State<VistaAlerta> {
   bool _enviando = false;
   String? _mensajeEstado;
   bool _contando = false;
