@@ -10,110 +10,99 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'vista_estadistica.dart';
 
-import '../main.dart'; // colores
-import '../core/notification_service.dart'; // 👈 Notificaciones
+import '../main.dart';
+import '../core/notification_service.dart'; // Usaremos ServicioNotificaciones (alias)
 
-// =============================
-// Config API
-// =============================
 const String _baseUrl = 'http://157.137.187.110:8000';
 
-// =============================
-// Utilidades globales simples
-// =============================
 String _fmt(DateTime dt) {
   String two(int n) => n.toString().padLeft(2, '0');
-  return '${dt.year}-${two(dt.month)}-${two(dt.day)} '
-         '${two(dt.hour)}:${two(dt.minute)}:${two(dt.second)}';
+  return '${dt.year}-${two(dt.month)}-${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}:${two(dt.second)}';
 }
 
 // =============================
 // Modelo / utilidades de estado
 // =============================
-enum RaceStatus { pendiente, hecha, noRealizada }
+enum EstadoCarrera { pendiente, hecha, noRealizada }
 
-String _statusToApi(RaceStatus s) {
+String _estadoAApi(EstadoCarrera s) {
   switch (s) {
-    case RaceStatus.hecha:
+    case EstadoCarrera.hecha:
       return 'hecha';
-    case RaceStatus.noRealizada:
+    case EstadoCarrera.noRealizada:
       return 'no_realizada';
-    case RaceStatus.pendiente:
+    case EstadoCarrera.pendiente:
     default:
       return 'pendiente';
   }
 }
 
-RaceStatus _statusFromApi(String s) {
+EstadoCarrera _estadoDesdeApi(String s) {
   switch (s) {
     case 'hecha':
-      return RaceStatus.hecha;
+      return EstadoCarrera.hecha;
     case 'no_realizada':
-      return RaceStatus.noRealizada;
+      return EstadoCarrera.noRealizada;
     case 'pendiente':
     default:
-      return RaceStatus.pendiente;
+      return EstadoCarrera.pendiente;
   }
 }
 
-class Race {
-  /// id > 0 => viene del servidor
-  /// id < 0 => creada local/offline (temporal, pendiente de subir)
-  int id;
-  String title;
-  DateTime dateTime; // en local (UI)
-  RaceStatus status;
+class Carrera {
+  int id;                // id>0 servidor, id<0 local/offline
+  String titulo;
+  DateTime fechaHora;    // hora local (UI)
+  EstadoCarrera estado;
   int tzOffsetMin;
 
-  Race({
+  Carrera({
     required this.id,
-    required this.title,
-    required this.dateTime,
-    this.status = RaceStatus.pendiente,
+    required this.titulo,
+    required this.fechaHora,
+    this.estado = EstadoCarrera.pendiente,
     this.tzOffsetMin = 0,
   });
 
-  // ===== Caché local =====
   Map<String, dynamic> toJson() => {
         'id': id,
-        'title': title,
-        'dateTime': dateTime.toIso8601String(),
-        'status': status.index,
+        'titulo': titulo,
+        'fechaHora': fechaHora.toIso8601String(),
+        'estado': estado.index,
         'tzOffsetMin': tzOffsetMin,
       };
 
-  static Race fromJson(Map<String, dynamic> m) => Race(
+  static Carrera fromJson(Map<String, dynamic> m) => Carrera(
         id: m['id'] as int,
-        title: m['title'] as String,
-        dateTime: DateTime.parse(m['dateTime'] as String),
-        status: RaceStatus.values[(m['status'] as int?) ?? 0],
+        titulo: m['titulo'] as String,
+        fechaHora: DateTime.parse(m['fechaHora'] as String),
+        estado: EstadoCarrera.values[(m['estado'] as int?) ?? 0],
         tzOffsetMin: (m['tzOffsetMin'] as int?) ?? 0,
       );
 
-  // ===== Mapear API =====
-  static Race fromApi(Map<String, dynamic> m) {
+  static Carrera fromApi(Map<String, dynamic> m) {
     final utc = DateTime.parse(m['fecha_hora_utc'] as String).toUtc();
-    return Race(
+    return Carrera(
       id: m['carrera_id'] as int,
-      title: m['titulo'] as String,
-      dateTime: utc.toLocal(),
-      status: _statusFromApi(m['estado'] as String),
+      titulo: m['titulo'] as String,
+      fechaHora: utc.toLocal(),
+      estado: _estadoDesdeApi(m['estado'] as String),
       tzOffsetMin: (m['tz_offset_min'] as int?) ?? 0,
     );
   }
 
   Map<String, dynamic> toApiCreateOrUpdate() => {
-        'titulo': title,
-        'fecha_hora_utc': dateTime.toUtc().toIso8601String(),
+        'titulo': titulo,
+        'fecha_hora_utc': fechaHora.toUtc().toIso8601String(),
         'tz_offset_min': DateTime.now().timeZoneOffset.inMinutes,
-        'estado': _statusToApi(status),
+        'estado': _estadoAApi(estado),
       };
 
-  Race clone() => Race(
+  Carrera clonar() => Carrera(
         id: id,
-        title: title,
-        dateTime: dateTime,
-        status: status,
+        titulo: titulo,
+        fechaHora: fechaHora,
+        estado: estado,
         tzOffsetMin: tzOffsetMin,
       );
 }
@@ -125,117 +114,103 @@ class VistaCalendario extends StatefulWidget {
   const VistaCalendario({super.key});
 
   @override
-  State<VistaCalendario> createState() => _VistaCalendarioState();
+  State<VistaCalendario> createState() => _EstadoVistaCalendario();
 }
 
-class _VistaCalendarioState extends State<VistaCalendario> {
-  final List<Race> _races = [];
-  late DateTime _focusedDay;
-  late DateTime _selectedDay;
-  late CalendarFormat _calendarFormat;
-  Map<DateTime, List<Race>> _events = {};
+class _EstadoVistaCalendario extends State<VistaCalendario> {
+  final List<Carrera> _carreras = [];
+  late DateTime _diaEnfocado;
+  late DateTime _diaSeleccionado;
+  late CalendarFormat _formatoCalendario;
+  Map<DateTime, List<Carrera>> _eventos = {};
 
-  static const _storageKey = 'races_storage_v1';
+  static const _claveStorage = 'races_storage_v1';
 
-  // Estilo contactos:
-  bool _isLoading = false;
+  bool _cargando = false;
   int? corredorId;
   String? contrasenia;
-  bool _isUserLoaded = false;
+  bool _usuarioCargado = false;
 
   @override
   void initState() {
     super.initState();
-    _focusedDay = DateTime.now();
-    _selectedDay = _focusedDay;
-    _calendarFormat = CalendarFormat.month;
-    _loadRacesFromDisk();     // pinta caché primero
-    _cargarDatosUsuario();    // luego servidor + sync
+    _diaEnfocado = DateTime.now();
+    _diaSeleccionado = _diaEnfocado;
+    _formatoCalendario = CalendarFormat.month;
+    _cargarDesdeDisco();     // pinta caché
+    _cargarUsuario();        // luego servidor + sync
   }
 
   // =============================
-  // User / Auth helpers
+  // Usuario / Auth
   // =============================
-  Future<void> _cargarDatosUsuario() async {
+  Future<void> _cargarUsuario() async {
     final prefs = await SharedPreferences.getInstance();
     corredorId = prefs.getInt('corredor_id');
     contrasenia = prefs.getString('contrasenia');
 
-    setState(() => _isUserLoaded = true);
+    setState(() => _usuarioCargado = true);
 
     if (corredorId != null && contrasenia != null) {
-      await _fetchCarreras();     // carga del servidor
-      await _syncLocalDrafts();   // intenta subir locales (id<0)
+      await _listarCarrerasServidor();
+      await _sincronizarBorradores();
     }
   }
 
-  Map<String, String> _authHeaders() => {
+  Map<String, String> _encabezadosAuth() => {
         'X-Corredor-Id': '${corredorId ?? ''}',
         'X-Contrasenia': contrasenia ?? '',
       };
 
-  void _showSnack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-  }
-
-  bool _shouldHaveReminder(Race r) {
-    return r.status == RaceStatus.pendiente && r.dateTime.isAfter(DateTime.now());
-  }
+  bool _debeTenerRecordatorio(Carrera c) =>
+      c.estado == EstadoCarrera.pendiente && c.fechaHora.isAfter(DateTime.now());
 
   // =============================
   // Persistencia local
   // =============================
-  Future<void> _loadRacesFromDisk() async {
+  Future<void> _cargarDesdeDisco() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_storageKey);
-    _races.clear();
+    final raw = prefs.getString(_claveStorage);
+    _carreras.clear();
     if (raw != null && raw.isNotEmpty) {
       try {
         final List list = jsonDecode(raw) as List;
-        _races.addAll(list.map((e) => Race.fromJson(e as Map<String, dynamic>)));
-      } catch (_) {
-        // datos corruptos => ignora
-      }
+        _carreras.addAll(list.map((e) => Carrera.fromJson(e as Map<String, dynamic>)));
+      } catch (_) {/* datos corruptos: ignora */}
     }
-    _races.sort((a, b) => a.dateTime.compareTo(b.dateTime));
-    _groupEvents();
-    await _scheduleAllRemindersQuiet(); // 👈 agenda/cancela en base a caché
+    _carreras.sort((a, b) => a.fechaHora.compareTo(b.fechaHora));
+    _agruparEventos();
+    await _reprogramarRecordatoriosSilencioso();
     if (mounted) setState(() {});
   }
 
-  Future<void> _saveRacesToDisk() async {
+  Future<void> _guardarEnDisco() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = jsonEncode(_races.map((e) => e.toJson()).toList());
-    await prefs.setString(_storageKey, raw);
+    final raw = jsonEncode(_carreras.map((e) => e.toJson()).toList());
+    await prefs.setString(_claveStorage, raw);
   }
 
-  void _groupEvents() {
-    _events = {};
-    for (var race in _races) {
-      final date = DateTime(race.dateTime.year, race.dateTime.month, race.dateTime.day);
-      _events.putIfAbsent(date, () => []).add(race);
+  void _agruparEventos() {
+    _eventos = {};
+    for (var c in _carreras) {
+      final d = DateTime(c.fechaHora.year, c.fechaHora.month, c.fechaHora.day);
+      _eventos.putIfAbsent(d, () => []).add(c);
     }
   }
 
-  List<Race> _getEventsForDay(DateTime day) {
-    final date = DateTime(day.year, day.month, day.day);
-    return _events[date] ?? [];
+  List<Carrera> _eventosDelDia(DateTime day) {
+    final d = DateTime(day.year, day.month, day.day);
+    return _eventos[d] ?? [];
   }
 
-  // Agenda/ajusta silenciosamente todas las notificaciones según estado/fecha
-  Future<void> _scheduleAllRemindersQuiet() async {
-    for (final r in _races) {
-      if (_shouldHaveReminder(r)) {
-        final remindAt = r.dateTime.subtract(const Duration(hours: 2));
-        debugPrint('[CAL] (bulk) "${r.title}" -> ${_fmt(remindAt)} (local) [id=${r.id}]');
-        await NotificationService.instance.scheduleRaceReminder(
-          raceId: r.id,
-          title: r.title,
-          raceDateTimeLocal: r.dateTime,
+  Future<void> _reprogramarRecordatoriosSilencioso() async {
+    for (final c in _carreras) {
+      if (_debeTenerRecordatorio(c)) {
+        await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
+          raceId: c.id, title: c.titulo, raceDateTimeLocal: c.fechaHora,
         );
       } else {
-        await NotificationService.instance.cancelRaceReminder(r.id);
+        await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(c.id);
       }
     }
   }
@@ -243,408 +218,328 @@ class _VistaCalendarioState extends State<VistaCalendario> {
   // =============================
   // API: listar / crear / actualizar / eliminar
   // =============================
-  Future<void> _fetchCarreras() async {
+  Future<void> _listarCarrerasServidor() async {
     if (corredorId == null || contrasenia == null) return;
-    setState(() => _isLoading = true);
+    setState(() => _cargando = true);
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/carreras'),
-        headers: _authHeaders(),
-      );
+      final response = await http.get(Uri.parse('$_baseUrl/carreras'), headers: _encabezadosAuth());
       if (response.statusCode == 200) {
         final List data = jsonDecode(response.body) as List;
-        final server = data.map((e) => Race.fromApi(e as Map<String, dynamic>)).toList();
+        final servidor = data.map((e) => Carrera.fromApi(e as Map<String, dynamic>)).toList();
+        final locales = _carreras.where((c) => c.id < 0).toList();
 
-        // Conserva locales no subidas (id<0)
-        final localOnly = _races.where((r) => r.id < 0).toList();
-
-        _races
-          ..clear()
-          ..addAll(server)
-          ..addAll(localOnly);
-
-        _races.sort((a, b) => a.dateTime.compareTo(b.dateTime));
-        _groupEvents();
-        await _saveRacesToDisk();
-        await _scheduleAllRemindersQuiet(); // 👈 agenda tras sync de servidor
+        _carreras..clear()..addAll(servidor)..addAll(locales);
+        _carreras.sort((a, b) => a.fechaHora.compareTo(b.fechaHora));
+        _agruparEventos();
+        await _guardarEnDisco();
+        await _reprogramarRecordatoriosSilencioso();
         setState(() {});
       } else {
-        _showSnack('Error al obtener carreras (${response.statusCode}): ${response.body}');
+        _mostrarSnack('Error al obtener carreras (${response.statusCode}): ${response.body}');
       }
-    } catch (e) {
-      // sin internet: mantén caché
+    } catch (_) {
+      // sin internet: queda caché
     } finally {
-      setState(() => _isLoading = false);
+      setState(() => _cargando = false);
     }
   }
 
-  Future<void> _syncLocalDrafts() async {
-    // intenta subir cada carrera con id<0
-    final drafts = _races.where((r) => r.id < 0).toList();
+  Future<void> _sincronizarBorradores() async {
+    final drafts = _carreras.where((c) => c.id < 0).toList();
     for (final local in drafts) {
       try {
         final resp = await http.post(
           Uri.parse('$_baseUrl/carreras'),
-          headers: {
-            ..._authHeaders(),
-            'Content-Type': 'application/json',
-          },
+          headers: {..._encabezadosAuth(), 'Content-Type': 'application/json'},
           body: jsonEncode(local.toApiCreateOrUpdate()),
         );
         if (resp.statusCode == 201) {
-          final created = Race.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
-          // reemplaza en la misma posición
-          final idx = _races.indexWhere((r) => r.id == local.id);
-          if (idx != -1) {
-            _races[idx] = created;
-          }
-          // Cancelar recordatorio del id temporal y agenda el nuevo
-          await NotificationService.instance.cancelRaceReminder(local.id);
-          if (_shouldHaveReminder(created)) {
-            final remindAt = created.dateTime.subtract(const Duration(hours: 2));
-            debugPrint('[CAL] (sync) "${created.title}" -> ${_fmt(remindAt)} (local) [id=${created.id}]');
-            await NotificationService.instance.scheduleRaceReminder(
-              raceId: created.id,
-              title: created.title,
-              raceDateTimeLocal: created.dateTime,
+          final creada = Carrera.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
+          final idx = _carreras.indexWhere((c) => c.id == local.id);
+          if (idx != -1) _carreras[idx] = creada;
+
+          await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(local.id);
+          if (_debeTenerRecordatorio(creada)) {
+            await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
+              raceId: creada.id, title: creada.titulo, raceDateTimeLocal: creada.fechaHora,
             );
           }
-        } else {
-          // servidor rechazó, lo dejamos local
         }
       } catch (_) {
-        // sin conexión: salimos silenciosamente
-        break;
+        break; // sin conexión: corto
       }
     }
-    _races.sort((a, b) => a.dateTime.compareTo(b.dateTime));
-    _groupEvents();
-    await _saveRacesToDisk();
+    _carreras.sort((a, b) => a.fechaHora.compareTo(b.fechaHora));
+    _agruparEventos();
+    await _guardarEnDisco();
     if (mounted) setState(() {});
   }
 
   // =============================
   // Acciones UI
   // =============================
-  Future<void> _saveRace(String title, DateTime dateTime, RaceStatus status,
-      {Race? existingRace}) async {
-    // ✅ Validar "futura" SOLO si es creación (sin existingRace) o si es borrador local (id < 0)
-    final mustBeFuture = (existingRace == null) || (existingRace.id < 0);
-    if (mustBeFuture && !dateTime.isAfter(DateTime.now())) {
-      _showSnack('La carrera debe programarse en una fecha y hora futura.');
+  void _mostrarSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  Future<void> _guardarCarrera(String titulo, DateTime fechaHora, EstadoCarrera estado,
+      {Carrera? existente}) async {
+    final debeSerFutura = (existente == null) || (existente.id < 0);
+    if (debeSerFutura && !fechaHora.isAfter(DateTime.now())) {
+      _mostrarSnack('La carrera debe programarse en una fecha y hora futura.');
       return;
     }
 
-    // ===== EDITAR =====
-    if (existingRace != null) {
-      final backup = existingRace.clone();
-      existingRace.title = title;
-      existingRace.dateTime = dateTime;
-      existingRace.status = status;
-      existingRace.tzOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
+    // EDITAR
+    if (existente != null) {
+      final copia = existente.clonar();
+      existente.titulo = titulo;
+      existente.fechaHora = fechaHora;
+      existente.estado = estado;
+      existente.tzOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
 
-      // (1) Si es local (id<0): realmente es "creación" (POST)
-      if (existingRace.id < 0) {
+      if (existente.id < 0) {
         try {
           final resp = await http.post(
             Uri.parse('$_baseUrl/carreras'),
-            headers: {
-              ..._authHeaders(),
-              'Content-Type': 'application/json',
-            },
-            body: jsonEncode(existingRace.toApiCreateOrUpdate()),
+            headers: {..._encabezadosAuth(), 'Content-Type': 'application/json'},
+            body: jsonEncode(existente.toApiCreateOrUpdate()),
           );
           if (resp.statusCode == 201) {
-            final created = Race.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
-            final idx = _races.indexWhere((r) => r.id == existingRace.id);
-            if (idx != -1) _races[idx] = created;
-            _showSnack('Carrera registrada.');
+            final creada = Carrera.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
+            final idx = _carreras.indexWhere((c) => c.id == existente.id);
+            if (idx != -1) _carreras[idx] = creada;
+            _mostrarSnack('Carrera registrada.');
 
-            // Cancelar recordatorio del id temporal y agenda el nuevo
-            await NotificationService.instance.cancelRaceReminder(backup.id);
-            if (_shouldHaveReminder(created)) {
-              final remindAt = created.dateTime.subtract(const Duration(hours: 2));
-              debugPrint('[CAL] (edit->server) "${created.title}" -> ${_fmt(remindAt)} (local)');
-              await NotificationService.instance.scheduleRaceReminder(
-                raceId: created.id,
-                title: created.title,
-                raceDateTimeLocal: created.dateTime,
+            await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(copia.id);
+            if (_debeTenerRecordatorio(creada)) {
+              await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
+                raceId: creada.id, title: creada.titulo, raceDateTimeLocal: creada.fechaHora,
               );
-              _showSnack('Recordatorio: ${_fmt(remindAt)}');
+              _mostrarSnack('Recordatorio: ${_fmt(creada.fechaHora.subtract(const Duration(hours: 2)))}');
             }
           } else {
-            final idx = _races.indexWhere((r) => r.id == existingRace.id);
-            if (idx != -1) _races[idx] = backup;
-            _showSnack('Error (${resp.statusCode}): ${resp.body}');
+            final idx = _carreras.indexWhere((c) => c.id == existente.id);
+            if (idx != -1) _carreras[idx] = copia;
+            _mostrarSnack('Error (${resp.statusCode}): ${resp.body}');
           }
         } on SocketException catch (_) {
-          _showSnack('Sin conexión. Cambios guardados sólo localmente.');
+          _mostrarSnack('Sin conexión. Cambios guardados sólo localmente.');
         } on TimeoutException catch (_) {
-          _showSnack('Sin conexión (timeout). Cambios locales.');
+          _mostrarSnack('Sin conexión (timeout). Cambios locales.');
         } on http.ClientException catch (_) {
-          _showSnack('Sin conexión. Cambios locales.');
+          _mostrarSnack('Sin conexión. Cambios locales.');
         }
       } else {
-        // (2) Remota (id>0): PUT (sin validar "futura")
         try {
           final resp = await http.put(
-            Uri.parse('$_baseUrl/carreras/${existingRace.id}'),
-            headers: {
-              ..._authHeaders(),
-              'Content-Type': 'application/json',
-            },
-            body: jsonEncode(existingRace.toApiCreateOrUpdate()),
+            Uri.parse('$_baseUrl/carreras/${existente.id}'),
+            headers: {..._encabezadosAuth(), 'Content-Type': 'application/json'},
+            body: jsonEncode(existente.toApiCreateOrUpdate()),
           );
           if (resp.statusCode == 200) {
-            _showSnack('Carrera actualizada correctamente');
-
-            // Reprograma (o cancela) según corresponda
-            if (_shouldHaveReminder(existingRace)) {
-              final remindAt = existingRace.dateTime.subtract(const Duration(hours: 2));
-              debugPrint('[CAL] (edit) "${existingRace.title}" -> ${_fmt(remindAt)} (local)');
-              await NotificationService.instance.rescheduleRaceReminder(
-                raceId: existingRace.id,
-                title: existingRace.title,
-                raceDateTimeLocal: existingRace.dateTime,
+            _mostrarSnack('Carrera actualizada correctamente');
+            if (_debeTenerRecordatorio(existente)) {
+              await ServicioNotificaciones.instancia.reprogramarRecordatorioCarrera(
+                raceId: existente.id, title: existente.titulo, raceDateTimeLocal: existente.fechaHora,
               );
-              _showSnack('Recordatorio reprogramado: ${_fmt(remindAt)}');
+              _mostrarSnack('Recordatorio reprogramado: ${_fmt(existente.fechaHora.subtract(const Duration(hours: 2)))}');
             } else {
-              await NotificationService.instance.cancelRaceReminder(existingRace.id);
-              debugPrint('[CAL] (edit) Recordatorio cancelado id=${existingRace.id}');
+              await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(existente.id);
             }
           } else {
-            // revertimos en error de servidor
-            existingRace.title = backup.title;
-            existingRace.dateTime = backup.dateTime;
-            existingRace.status = backup.status;
-            existingRace.tzOffsetMin = backup.tzOffsetMin;
-            _showSnack('Error (${resp.statusCode}): ${resp.body}');
+            existente.titulo = copia.titulo;
+            existente.fechaHora = copia.fechaHora;
+            existente.estado = copia.estado;
+            existente.tzOffsetMin = copia.tzOffsetMin;
+            _mostrarSnack('Error (${resp.statusCode}): ${resp.body}');
           }
         } on SocketException catch (_) {
-          _showSnack('Sin conexión. Cambios guardados sólo localmente.');
+          _mostrarSnack('Sin conexión. Cambios locales.');
+          await _aplicarPoliticaRecordatorioLocal(existente);
         } on TimeoutException catch (_) {
-          _showSnack('Sin conexión (timeout). Cambios locales.');
+          _mostrarSnack('Sin conexión (timeout). Cambios locales.');
+          await _aplicarPoliticaRecordatorioLocal(existente);
         } on http.ClientException catch (_) {
-          _showSnack('Sin conexión. Cambios locales.');
+          _mostrarSnack('Sin conexión. Cambios locales.');
+          await _aplicarPoliticaRecordatorioLocal(existente);
         }
       }
     }
-
-    // ===== NUEVA =====
+    // NUEVA
     else {
       try {
-        final draft = Race(
-          id: 0, // temporal; si sale bien el POST no se usa
-          title: title,
-          dateTime: dateTime,
-          status: status,
+        final borrador = Carrera(
+          id: 0,
+          titulo: titulo,
+          fechaHora: fechaHora,
+          estado: estado,
           tzOffsetMin: DateTime.now().timeZoneOffset.inMinutes,
         );
-
         final resp = await http.post(
           Uri.parse('$_baseUrl/carreras'),
-          headers: {
-            ..._authHeaders(),
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(draft.toApiCreateOrUpdate()),
+          headers: {..._encabezadosAuth(), 'Content-Type': 'application/json'},
+          body: jsonEncode(borrador.toApiCreateOrUpdate()),
         );
         if (resp.statusCode == 201) {
-          final created = Race.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
-          _races.add(created);
-          _showSnack('Carrera registrada.');
-
-          if (_shouldHaveReminder(created)) {
-            final remindAt = created.dateTime.subtract(const Duration(hours: 2));
-            debugPrint('[CAL] (create) Programando "${created.title}" para ${_fmt(remindAt)} (local)');
-            await NotificationService.instance.scheduleRaceReminder(
-              raceId: created.id,
-              title: created.title,
-              raceDateTimeLocal: created.dateTime,
+          final creada = Carrera.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
+          _carreras.add(creada);
+          _mostrarSnack('Carrera registrada.');
+          if (_debeTenerRecordatorio(creada)) {
+            await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
+              raceId: creada.id, title: creada.titulo, raceDateTimeLocal: creada.fechaHora,
             );
-            _showSnack('Recordatorio: ${_fmt(remindAt)}');
+            _mostrarSnack('Recordatorio: ${_fmt(creada.fechaHora.subtract(const Duration(hours: 2)))}');
           }
         } else {
-          _showSnack('Error (${resp.statusCode}): ${resp.body}');
+          _mostrarSnack('Error (${resp.statusCode}): ${resp.body}');
         }
       } on SocketException catch (_) {
-        // sin conexión => guardamos local
-        final local = Race(
+        final local = Carrera(
           id: -DateTime.now().millisecondsSinceEpoch,
-          title: title,
-          dateTime: dateTime,
-          status: status,
+          titulo: titulo,
+          fechaHora: fechaHora,
+          estado: estado,
           tzOffsetMin: DateTime.now().timeZoneOffset.inMinutes,
         );
-        _races.add(local);
-        _showSnack('Sin conexión. Carrera guardada localmente.');
-
-        if (_shouldHaveReminder(local)) {
-          final remindAt = local.dateTime.subtract(const Duration(hours: 2));
-          debugPrint('[CAL] (create-offline) "${local.title}" -> ${_fmt(remindAt)} (local) [id=${local.id}]');
-          await NotificationService.instance.scheduleRaceReminder(
-            raceId: local.id,
-            title: local.title,
-            raceDateTimeLocal: local.dateTime,
+        _carreras.add(local);
+        _mostrarSnack('Sin conexión. Carrera guardada localmente.');
+        if (_debeTenerRecordatorio(local)) {
+          await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
+            raceId: local.id, title: local.titulo, raceDateTimeLocal: local.fechaHora,
           );
-          _showSnack('Recordatorio (offline): ${_fmt(remindAt)}');
+          _mostrarSnack('Recordatorio (offline): ${_fmt(local.fechaHora.subtract(const Duration(hours: 2)))}');
         }
       } on TimeoutException catch (_) {
-        final local = Race(
+        final local = Carrera(
           id: -DateTime.now().millisecondsSinceEpoch,
-          title: title,
-          dateTime: dateTime,
-          status: status,
+          titulo: titulo,
+          fechaHora: fechaHora,
+          estado: estado,
           tzOffsetMin: DateTime.now().timeZoneOffset.inMinutes,
         );
-        _races.add(local);
-        _showSnack('Sin conexión (timeout). Guardada localmente.');
-        if (_shouldHaveReminder(local)) {
-          final remindAt = local.dateTime.subtract(const Duration(hours: 2));
-          debugPrint('[CAL] (create-offline/timeout) "${local.title}" -> ${_fmt(remindAt)} (local)');
-          await NotificationService.instance.scheduleRaceReminder(
-            raceId: local.id,
-            title: local.title,
-            raceDateTimeLocal: local.dateTime,
+        _carreras.add(local);
+        _mostrarSnack('Sin conexión (timeout). Guardada localmente.');
+        if (_debeTenerRecordatorio(local)) {
+          await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
+            raceId: local.id, title: local.titulo, raceDateTimeLocal: local.fechaHora,
           );
-          _showSnack('Recordatorio (offline): ${_fmt(remindAt)}');
+          _mostrarSnack('Recordatorio (offline): ${_fmt(local.fechaHora.subtract(const Duration(hours: 2)))}');
         }
       } on http.ClientException catch (_) {
-        final local = Race(
+        final local = Carrera(
           id: -DateTime.now().millisecondsSinceEpoch,
-          title: title,
-          dateTime: dateTime,
-          status: status,
+          titulo: titulo,
+          fechaHora: fechaHora,
+          estado: estado,
           tzOffsetMin: DateTime.now().timeZoneOffset.inMinutes,
         );
-        _races.add(local);
-        _showSnack('Sin conexión. Guardada localmente.');
-        if (_shouldHaveReminder(local)) {
-          final remindAt = local.dateTime.subtract(const Duration(hours: 2));
-          debugPrint('[CAL] (create-offline/client) "${local.title}" -> ${_fmt(remindAt)} (local)');
-          await NotificationService.instance.scheduleRaceReminder(
-            raceId: local.id,
-            title: local.title,
-            raceDateTimeLocal: local.dateTime,
+        _carreras.add(local);
+        _mostrarSnack('Sin conexión. Guardada localmente.');
+        if (_debeTenerRecordatorio(local)) {
+          await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
+            raceId: local.id, title: local.titulo, raceDateTimeLocal: local.fechaHora,
           );
-          _showSnack('Recordatorio (offline): ${_fmt(remindAt)}');
+          _mostrarSnack('Recordatorio (offline): ${_fmt(local.fechaHora.subtract(const Duration(hours: 2)))}');
         }
       }
     }
 
-    _races.sort((a, b) => a.dateTime.compareTo(b.dateTime));
-    _groupEvents();
-    await _saveRacesToDisk();
+    _carreras.sort((a, b) => a.fechaHora.compareTo(b.fechaHora));
+    _agruparEventos();
+    await _guardarEnDisco();
     if (mounted) setState(() {});
   }
 
-  Future<void> _updateRaceStatus(Race race, RaceStatus newStatus) async {
-    final prev = race.status;
-    race.status = newStatus;
-
-    // Manejo local también agenda/cancela
-    Future<void> _applyLocalReminderPolicy() async {
-      if (race.status == RaceStatus.pendiente && race.dateTime.isAfter(DateTime.now())) {
-        final remindAt = race.dateTime.subtract(const Duration(hours: 2));
-        await NotificationService.instance.rescheduleRaceReminder(
-          raceId: race.id,
-          title: race.title,
-          raceDateTimeLocal: race.dateTime,
-        );
-        debugPrint('[CAL] (estado->pendiente) "${race.title}" -> ${_fmt(remindAt)} (local)');
-      } else {
-        await NotificationService.instance.cancelRaceReminder(race.id);
-        debugPrint('[CAL] (estado) Recordatorio cancelado id=${race.id}');
-      }
+  Future<void> _aplicarPoliticaRecordatorioLocal(Carrera c) async {
+    if (_debeTenerRecordatorio(c)) {
+      await ServicioNotificaciones.instancia.reprogramarRecordatorioCarrera(
+        raceId: c.id, title: c.titulo, raceDateTimeLocal: c.fechaHora,
+      );
+    } else {
+      await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(c.id);
     }
+  }
 
-    if (race.id <= 0) {
-      await _applyLocalReminderPolicy();
-      _showSnack('Estado guardado localmente.');
-      await _saveRacesToDisk();
+  Future<void> _actualizarEstado(Carrera c, EstadoCarrera nuevo) async {
+    final prev = c.estado;
+    c.estado = nuevo;
+
+    if (c.id <= 0) {
+      await _aplicarPoliticaRecordatorioLocal(c);
+      _mostrarSnack('Estado guardado localmente.');
+      await _guardarEnDisco();
       if (mounted) setState(() {});
       return;
     }
 
     try {
       final resp = await http.patch(
-        Uri.parse('$_baseUrl/carreras/${race.id}/estado?estado=${_statusToApi(newStatus)}'),
-        headers: _authHeaders(),
+        Uri.parse('$_baseUrl/carreras/${c.id}/estado?estado=${_estadoAApi(nuevo)}'),
+        headers: _encabezadosAuth(),
       );
       if (resp.statusCode == 200) {
-        _showSnack('Estado de la carrera actualizado.');
-        await _applyLocalReminderPolicy();
+        _mostrarSnack('Estado de la carrera actualizado.');
+        await _aplicarPoliticaRecordatorioLocal(c);
       } else {
-        race.status = prev; // revertimos en error de servidor
-        _showSnack('Error (${resp.statusCode}): ${resp.body}');
+        c.estado = prev;
+        _mostrarSnack('Error (${resp.statusCode}): ${resp.body}');
       }
     } on SocketException catch (_) {
-      _showSnack('Sin conexión. Estado guardado sólo localmente.');
-      await _applyLocalReminderPolicy();
+      _mostrarSnack('Sin conexión. Estado guardado sólo localmente.');
+      await _aplicarPoliticaRecordatorioLocal(c);
     } on TimeoutException catch (_) {
-      _showSnack('Sin conexión (timeout). Estado local.');
-      await _applyLocalReminderPolicy();
+      _mostrarSnack('Sin conexión (timeout). Estado local.');
+      await _aplicarPoliticaRecordatorioLocal(c);
     } on http.ClientException catch (_) {
-      _showSnack('Sin conexión. Estado local.');
-      await _applyLocalReminderPolicy();
+      _mostrarSnack('Sin conexión. Estado local.');
+      await _aplicarPoliticaRecordatorioLocal(c);
     }
 
-    await _saveRacesToDisk();
+    await _guardarEnDisco();
     if (mounted) setState(() {});
   }
 
-  Future<void> _deleteRace(Race race) async {
-    // Cancela recordatorio siempre (local o remota)
-    await NotificationService.instance.cancelRaceReminder(race.id);
-    debugPrint('[CAL] (delete) Recordatorio cancelado id=${race.id}');
+  Future<void> _eliminarCarrera(Carrera c) async {
+    await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(c.id);
 
-    if (race.id > 0) {
+    if (c.id > 0) {
       try {
-        final resp = await http.delete(
-          Uri.parse('$_baseUrl/carreras/${race.id}'),
-          headers: _authHeaders(),
-        );
+        final resp = await http.delete(Uri.parse('$_baseUrl/carreras/${c.id}'), headers: _encabezadosAuth());
         if (resp.statusCode != 200) {
-          _showSnack('Error al eliminar (${resp.statusCode}): ${resp.body}');
+          _mostrarSnack('Error al eliminar (${resp.statusCode}): ${resp.body}');
           return;
         }
       } on SocketException catch (_) {
-        _showSnack('Sin conexión. No se pudo eliminar en servidor.');
+        _mostrarSnack('Sin conexión. No se pudo eliminar en servidor.');
         return;
       } on TimeoutException catch (_) {
-        _showSnack('Sin conexión (timeout). No se pudo eliminar en servidor.');
+        _mostrarSnack('Sin conexión (timeout). No se pudo eliminar en servidor.');
         return;
       } on http.ClientException catch (_) {
-        _showSnack('Sin conexión. No se pudo eliminar en servidor.');
+        _mostrarSnack('Sin conexión. No se pudo eliminar en servidor.');
         return;
       }
     }
-    // elimina local (también si era id<0)
-    _races.removeWhere((r) => r.id == race.id);
-    _groupEvents();
-    await _saveRacesToDisk();
+
+    _carreras.removeWhere((r) => r.id == c.id);
+    _agruparEventos();
+    await _guardarEnDisco();
     if (mounted) setState(() {});
-    _showSnack('Carrera eliminada.');
+    _mostrarSnack('Carrera eliminada.');
   }
 
-  void _confirmDelete(Race race) {
+  void _confirmarEliminar(Carrera c) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Eliminar carrera"),
         content: const Text("¿Seguro que deseas eliminar esta carrera?"),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancelar"),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _deleteRace(race);
-            },
-            child: const Text("Eliminar", style: TextStyle(color: Colors.red)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
+          TextButton(onPressed: () async { Navigator.pop(ctx); await _eliminarCarrera(c); },
+              child: const Text("Eliminar", style: TextStyle(color: Colors.red))),
         ],
       ),
     );
@@ -655,13 +550,11 @@ class _VistaCalendarioState extends State<VistaCalendario> {
   // =============================
   @override
   Widget build(BuildContext context) {
-    if (!_isUserLoaded) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator(color: primaryColor)),
-      );
+    if (!_usuarioCargado) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator(color: primaryColor)));
     }
 
-    final selectedDayEvents = _getEventsForDay(_selectedDay);
+    final eventosDelSeleccionado = _eventosDelDia(_diaSeleccionado);
 
     return Scaffold(
       appBar: AppBar(
@@ -673,62 +566,47 @@ class _VistaCalendarioState extends State<VistaCalendario> {
             tooltip: 'Ver estadísticas del mes',
             icon: const Icon(Icons.bar_chart),
             onPressed: () {
-              final y = _focusedDay.year;
-              final m = _focusedDay.month;
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => VistaEstadistica(year: y, month: m),
-                ),
-              );
+              final y = _diaEnfocado.year;
+              final m = _diaEnfocado.month;
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => VistaEstadistica(year: y, month: m)));
             },
           ),
         ],
       ),
-      body: _isLoading
+      body: _cargando
           ? const Center(child: CircularProgressIndicator(color: primaryColor))
           : Column(
               children: [
-                _buildTableCalendar(),
+                _construirCalendario(),
                 const Divider(height: 1),
-
-                // ---------- Encabezado: "Carreras del día" + botón "+" ----------
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
                   child: Row(
                     children: [
-                      Text(
-                        "Carreras del día",
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleLarge
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
+                      Text("Carreras del día",
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                       const Spacer(),
                       IconButton(
                         tooltip: 'Nueva carrera',
-                        onPressed: () => _showRaceForm(selectedDay: _selectedDay),
+                        onPressed: () => _mostrarFormulario(diaSeleccionado: _diaSeleccionado),
                         icon: const Icon(Icons.add_circle_outline),
                       ),
                     ],
                   ),
                 ),
-
-                // ---------- Lista de eventos del día ----------
                 Expanded(
-                  child: selectedDayEvents.isEmpty
+                  child: eventosDelSeleccionado.isEmpty
                       ? _buildEmptyDay()
-                      : _buildEventList(selectedDayEvents),
+                      : _construirListaEventos(eventosDelSeleccionado),
                 ),
               ],
             ),
-
-      // ---------- FAB pequeño y discreto ----------
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       floatingActionButton: SafeArea(
         child: Padding(
           padding: const EdgeInsets.only(bottom: 8.0, right: 8.0),
           child: FloatingActionButton.small(
-            onPressed: () => _showRaceForm(selectedDay: _selectedDay),
+            onPressed: () => _mostrarFormulario(diaSeleccionado: _diaSeleccionado),
             backgroundColor: primaryColor,
             foregroundColor: Colors.black,
             child: const Icon(Icons.add),
@@ -738,68 +616,53 @@ class _VistaCalendarioState extends State<VistaCalendario> {
     );
   }
 
-  Widget _buildTableCalendar() {
-    return TableCalendar<Race>(
+  Widget _construirCalendario() {
+    return TableCalendar<Carrera>(
       firstDay: DateTime.utc(2020, 1, 1),
       lastDay: DateTime.utc(2030, 12, 31),
-      focusedDay: _focusedDay,
-      calendarFormat: _calendarFormat,
-      selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-      eventLoader: _getEventsForDay,
+      focusedDay: _diaEnfocado,
+      calendarFormat: _formatoCalendario,
+      selectedDayPredicate: (day) => isSameDay(_diaSeleccionado, day),
+      eventLoader: _eventosDelDia,
       startingDayOfWeek: StartingDayOfWeek.monday,
       calendarStyle: CalendarStyle(
         outsideDaysVisible: false,
-        todayDecoration: BoxDecoration(
-          color: primaryColor.withOpacity(0.5),
-          shape: BoxShape.circle,
-        ),
-        selectedDecoration: const BoxDecoration(
-          color: primaryColor,
-          shape: BoxShape.circle,
-        ),
-        markerDecoration: const BoxDecoration(
-          color: accentColor,
-          shape: BoxShape.circle,
-        ),
+        todayDecoration: BoxDecoration(color: primaryColor.withOpacity(0.5), shape: BoxShape.circle),
+        selectedDecoration: const BoxDecoration(color: primaryColor, shape: BoxShape.circle),
+        markerDecoration: const BoxDecoration(color: accentColor, shape: BoxShape.circle),
       ),
-      headerStyle: const HeaderStyle(
-        formatButtonVisible: false,
-        titleCentered: true,
-      ),
+      headerStyle: const HeaderStyle(formatButtonVisible: false, titleCentered: true),
       onDaySelected: (selectedDay, focusedDay) {
-        if (!isSameDay(_selectedDay, selectedDay)) {
+        if (!isSameDay(_diaSeleccionado, selectedDay)) {
           setState(() {
-            _selectedDay = selectedDay;
-            _focusedDay = focusedDay;
+            _diaSeleccionado = selectedDay;
+            _diaEnfocado = focusedDay;
           });
         }
-        _showRaceForm(selectedDay: selectedDay);
+        _mostrarFormulario(diaSeleccionado: selectedDay);
       },
       onFormatChanged: (format) {
-        if (_calendarFormat != format) {
-          setState(() => _calendarFormat = format);
+        if (_formatoCalendario != format) {
+          setState(() => _formatoCalendario = format);
         }
       },
-      onPageChanged: (focusedDay) {
-        _focusedDay = focusedDay;
-      },
+      onPageChanged: (focusedDay) => _diaEnfocado = focusedDay,
     );
   }
 
-  Widget _buildEventList(List<Race> events) {
-    // Deja espacio suficiente abajo para que el FAB nunca tape la última tarjeta
+  Widget _construirListaEventos(List<Carrera> eventos) {
     final extraBottom = MediaQuery.of(context).padding.bottom + 80;
 
     return ListView.builder(
       padding: EdgeInsets.fromLTRB(16, 0, 16, extraBottom),
-      itemCount: events.length,
+      itemCount: eventos.length,
       itemBuilder: (context, index) {
-        final race = events[index];
-        return _RaceCard(
-          race: race,
-          onStatusChanged: (newStatus) => _updateRaceStatus(race, newStatus),
-          onEdit: () => _showRaceForm(race: race),
-          onDelete: () => _confirmDelete(race),
+        final c = eventos[index];
+        return _TarjetaCarrera(
+          carrera: c,
+          onEstadoCambiado: (nuevo) => _actualizarEstado(c, nuevo),
+          onEditar: () => _mostrarFormulario(carrera: c),
+          onEliminar: () => _confirmarEliminar(c),
         );
       },
     );
@@ -818,7 +681,7 @@ class _VistaCalendarioState extends State<VistaCalendario> {
     );
   }
 
-  void _showRaceForm({Race? race, DateTime? selectedDay}) {
+  void _mostrarFormulario({Carrera? carrera, DateTime? diaSeleccionado}) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -827,14 +690,12 @@ class _VistaCalendarioState extends State<VistaCalendario> {
         return SafeArea(
           top: false,
           child: SingleChildScrollView(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-            ),
-            child: _AddEditRaceSheet(
-              onSave: (title, dateTime, status) =>
-                  _saveRace(title, dateTime, status, existingRace: race),
-              race: race,
-              selectedDay: selectedDay,
+            padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 16),
+            child: _HojaAgregarEditarCarrera(
+              onSave: (titulo, fechaHora, estado) =>
+                  _guardarCarrera(titulo, fechaHora, estado, existente: carrera),
+              carrera: carrera,
+              diaSeleccionado: diaSeleccionado,
             ),
           ),
         );
@@ -843,23 +704,23 @@ class _VistaCalendarioState extends State<VistaCalendario> {
   }
 }
 
-class _RaceCard extends StatelessWidget {
-  final Race race;
-  final Function(RaceStatus) onStatusChanged;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+class _TarjetaCarrera extends StatelessWidget {
+  final Carrera carrera;
+  final Function(EstadoCarrera) onEstadoCambiado;
+  final VoidCallback onEditar;
+  final VoidCallback onEliminar;
 
-  const _RaceCard({
-    required this.race,
-    required this.onStatusChanged,
-    required this.onEdit,
-    required this.onDelete,
+  const _TarjetaCarrera({
+    required this.carrera,
+    required this.onEstadoCambiado,
+    required this.onEditar,
+    required this.onEliminar,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isPast = race.dateTime.isBefore(DateTime.now());
-    final statusData = _getStatusData(race.status);
+    final pasada = carrera.fechaHora.isBefore(DateTime.now());
+    final data = _datosEstado(carrera.estado);
 
     return Card(
       color: cardColor,
@@ -872,34 +733,23 @@ class _RaceCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(statusData['icon'], color: statusData['color'], size: 20),
+                Icon(data['icon'], color: data['color'], size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        race.title,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      Text(
-                        _formatTime(TimeOfDay.fromDateTime(race.dateTime)),
-                        style: const TextStyle(color: Colors.grey, fontSize: 14),
-                      ),
+                      Text(carrera.titulo,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                      Text(_formatearHora(TimeOfDay.fromDateTime(carrera.fechaHora)),
+                          style: const TextStyle(color: Colors.grey, fontSize: 14)),
                     ],
                   ),
                 ),
                 PopupMenuButton<String>(
                   onSelected: (value) {
-                    if (value == 'edit') {
-                      onEdit();
-                    } else if (value == 'delete') {
-                      onDelete();
-                    }
+                    if (value == 'edit') onEditar();
+                    if (value == 'delete') onEliminar();
                   },
                   itemBuilder: (ctx) => const [
                     PopupMenuItem(value: 'edit', child: Text('Editar')),
@@ -908,9 +758,9 @@ class _RaceCard extends StatelessWidget {
                 ),
               ],
             ),
-            if (isPast && race.status == RaceStatus.pendiente) ...[
+            if (pasada && carrera.estado == EstadoCarrera.pendiente) ...[
               const Divider(height: 20),
-              _buildStatusSelector(),
+              _selectorEstado(),
             ]
           ],
         ),
@@ -918,170 +768,147 @@ class _RaceCard extends StatelessWidget {
     );
   }
 
-  Widget _buildStatusSelector() {
+  Widget _selectorEstado() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _statusChip(RaceStatus.hecha, 'Hecha'),
+        _chipEstado(EstadoCarrera.hecha, 'Hecha'),
         const SizedBox(width: 10),
-        _statusChip(RaceStatus.noRealizada, 'No Realizada'),
+        _chipEstado(EstadoCarrera.noRealizada, 'No Realizada'),
       ],
     );
   }
 
-  Widget _statusChip(RaceStatus status, String label) {
-    final isSelected = race.status == status;
+  Widget _chipEstado(EstadoCarrera estado, String label) {
+    final seleccionado = carrera.estado == estado;
+    final data = _datosEstado(estado);
     return ChoiceChip(
       label: Text(label),
-      selected: isSelected,
-      onSelected: (selected) {
-        if (selected) onStatusChanged(status);
+      selected: seleccionado,
+      onSelected: (sel) {
+        if (sel) onEstadoCambiado(estado);
       },
       backgroundColor: Colors.grey.withOpacity(0.2),
-      selectedColor: _getStatusData(status)['color'],
+      selectedColor: data['color'],
       labelStyle: TextStyle(
-        color: isSelected ? Colors.black : Colors.white,
+        color: seleccionado ? Colors.black : Colors.white,
         fontWeight: FontWeight.bold,
       ),
     );
   }
 
-  Map<String, dynamic> _getStatusData(RaceStatus status) {
-    switch (status) {
-      case RaceStatus.hecha:
+  Map<String, dynamic> _datosEstado(EstadoCarrera estado) {
+    switch (estado) {
+      case EstadoCarrera.hecha:
         return {'icon': Icons.check_circle, 'color': Colors.greenAccent};
-      case RaceStatus.noRealizada:
+      case EstadoCarrera.noRealizada:
         return {'icon': Icons.cancel, 'color': Colors.redAccent};
-      case RaceStatus.pendiente:
+      case EstadoCarrera.pendiente:
       default:
         return {'icon': Icons.hourglass_top, 'color': primaryColor};
     }
   }
 
-  String _formatTime(TimeOfDay time) {
-    final hour = time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod;
-    final minute = time.minute.toString().padLeft(2, '0');
-    final period = time.period == DayPeriod.am ? 'AM' : 'PM';
-    return '$hour:$minute $period';
+  String _formatearHora(TimeOfDay t) {
+    final h = t.hourOfPeriod == 0 ? 12 : t.hourOfPeriod;
+    final m = t.minute.toString().padLeft(2, '0');
+    final p = t.period == DayPeriod.am ? 'AM' : 'PM';
+    return '$h:$m $p';
   }
 }
 
-// --- FORMULARIO PARA AGREGAR/EDITAR ---
-class _AddEditRaceSheet extends StatefulWidget {
-  final Function(String title, DateTime dateTime, RaceStatus status) onSave;
-  final Race? race;
-  final DateTime? selectedDay;
+// --- Formulario agregar/editar ---
+class _HojaAgregarEditarCarrera extends StatefulWidget {
+  final Function(String titulo, DateTime fechaHora, EstadoCarrera estado) onSave;
+  final Carrera? carrera;
+  final DateTime? diaSeleccionado;
 
-  const _AddEditRaceSheet({required this.onSave, this.race, this.selectedDay});
+  const _HojaAgregarEditarCarrera({required this.onSave, this.carrera, this.diaSeleccionado});
 
   @override
-  State<_AddEditRaceSheet> createState() => _AddEditRaceSheetState();
+  State<_HojaAgregarEditarCarrera> createState() => _EstadoHojaAgregarEditarCarrera();
 }
 
-class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
-  final _titleController = TextEditingController();
-  DateTime? _selectedDate;
-  TimeOfDay? _selectedTime;
-  RaceStatus _selectedStatus = RaceStatus.pendiente;
+class _EstadoHojaAgregarEditarCarrera extends State<_HojaAgregarEditarCarrera> {
+  final _ctrlTitulo = TextEditingController();
+  DateTime? _fecha;
+  TimeOfDay? _hora;
+  EstadoCarrera _estado = EstadoCarrera.pendiente;
 
   @override
   void initState() {
     super.initState();
-    if (widget.race != null) {
-      _titleController.text = widget.race!.title;
-      _selectedDate = widget.race!.dateTime;
-      _selectedTime = TimeOfDay.fromDateTime(widget.race!.dateTime);
-      _selectedStatus = widget.race!.status;
-    } else if (widget.selectedDay != null) {
-      _selectedDate = widget.selectedDay;
+    if (widget.carrera != null) {
+      _ctrlTitulo.text = widget.carrera!.titulo;
+      _fecha = widget.carrera!.fechaHora;
+      _hora = TimeOfDay.fromDateTime(widget.carrera!.fechaHora);
+      _estado = widget.carrera!.estado;
+    } else if (widget.diaSeleccionado != null) {
+      _fecha = widget.diaSeleccionado;
     }
   }
 
-  Future<void> _pickDate() async {
-    final date = await showDatePicker(
+  Future<void> _seleccionarFecha() async {
+    final d = await showDatePicker(
       context: context,
-      initialDate: _selectedDate ?? DateTime.now(),
+      initialDate: _fecha ?? DateTime.now(),
       firstDate: DateTime.now(),
       lastDate: DateTime(2100),
     );
-    if (date != null) {
-      setState(() => _selectedDate = date);
-    }
+    if (d != null) setState(() => _fecha = d);
   }
 
-  Future<void> _pickTime() async {
-    TimeOfDay tempTime = _selectedTime ?? TimeOfDay.now();
-
+  Future<void> _seleccionarHora() async {
+    TimeOfDay tmp = _hora ?? TimeOfDay.now();
     await showModalBottomSheet(
       context: context,
       backgroundColor: cardColor,
-      builder: (BuildContext builder) {
-        return SizedBox(
-          height: 300,
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Cancelar'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        setState(() {
-                          _selectedTime = tempTime;
-                        });
-                        Navigator.of(context).pop();
-                      },
-                      child: const Text('Guardar',
-                          style: TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: CupertinoDatePicker(
-                  mode: CupertinoDatePickerMode.time,
-                  initialDateTime: DateTime(
-                    DateTime.now().year,
-                    DateTime.now().month,
-                    DateTime.now().day,
-                    _selectedTime?.hour ?? TimeOfDay.now().hour,
-                    _selectedTime?.minute ?? TimeOfDay.now().minute,
+      builder: (ctx) => SizedBox(
+        height: 300,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancelar')),
+                  TextButton(
+                    onPressed: () { setState(() => _hora = tmp); Navigator.of(ctx).pop(); },
+                    child: const Text('Guardar', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
-                  onDateTimeChanged: (DateTime newDateTime) {
-                    tempTime = TimeOfDay.fromDateTime(newDateTime);
-                  },
-                  use24hFormat: MediaQuery.of(context).alwaysUse24HourFormat,
-                  minuteInterval: 1,
-                ),
+                ],
               ),
-            ],
-          ),
-        );
-      },
+            ),
+            Expanded(
+              child: CupertinoDatePicker(
+                mode: CupertinoDatePickerMode.time,
+                initialDateTime: DateTime(
+                  DateTime.now().year, DateTime.now().month, DateTime.now().day,
+                  _hora?.hour ?? TimeOfDay.now().hour,
+                  _hora?.minute ?? TimeOfDay.now().minute,
+                ),
+                onDateTimeChanged: (dt) => tmp = TimeOfDay.fromDateTime(dt),
+                use24hFormat: MediaQuery.of(context).alwaysUse24HourFormat,
+                minuteInterval: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
-  void _submit() {
-    final title = _titleController.text.trim();
-    if (title.isEmpty || _selectedDate == null || _selectedTime == null) {
+  void _guardar() {
+    final titulo = _ctrlTitulo.text.trim();
+    if (titulo.isEmpty || _fecha == null || _hora == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Por favor, completa todos los campos.')),
       );
       return;
     }
-    final fullDateTime = DateTime(
-      _selectedDate!.year,
-      _selectedDate!.month,
-      _selectedDate!.day,
-      _selectedTime!.hour,
-      _selectedTime!.minute,
-    );
-    widget.onSave(title, fullDateTime, _selectedStatus);
+    final full = DateTime(_fecha!.year, _fecha!.month, _fecha!.day, _hora!.hour, _hora!.minute);
+    widget.onSave(titulo, full, _estado);
     Navigator.of(context).pop();
   }
 
@@ -1091,41 +918,26 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
       padding: const EdgeInsets.all(24.0),
       decoration: const BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
-        ),
+        borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            widget.race == null ? 'Programar Carrera' : 'Editar Carrera',
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-          ),
+          Text(widget.carrera == null ? 'Programar Carrera' : 'Editar Carrera',
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 24),
           TextField(
-            controller: _titleController,
+            controller: _ctrlTitulo,
             decoration: const InputDecoration(labelText: 'Título de la carrera'),
             style: const TextStyle(color: Colors.white),
             cursorColor: primaryColor,
             textInputAction: TextInputAction.next,
           ),
           const SizedBox(height: 16),
-          DropdownButtonFormField<RaceStatus>(
-            value: _selectedStatus,
-            onChanged: (RaceStatus? newValue) {
-              if (newValue != null) {
-                setState(() => _selectedStatus = newValue);
-              }
-            },
-            items: RaceStatus.values.map((RaceStatus status) {
-              return DropdownMenuItem<RaceStatus>(
-                value: status,
-                child: Text(_statusToString(status)),
-              );
-            }).toList(),
+          DropdownButtonFormField<EstadoCarrera>(
+            value: _estado,
+            onChanged: (EstadoCarrera? v) { if (v != null) setState(() => _estado = v); },
+            items: EstadoCarrera.values.map((e) => DropdownMenuItem(value: e, child: Text(_estadoATexto(e)))).toList(),
             decoration: const InputDecoration(labelText: 'Estado'),
             dropdownColor: cardColor,
           ),
@@ -1134,13 +946,12 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
             children: [
               Expanded(
                 child: InkWell(
-                  onTap: _pickDate,
+                  onTap: _seleccionarFecha,
                   child: InputDecorator(
                     decoration: const InputDecoration(labelText: 'Fecha'),
                     child: Text(
-                      _selectedDate == null
-                          ? 'Seleccionar'
-                          : '${_selectedDate!.day}/${_selectedDate!.month}/${_selectedDate!.year}',
+                      _fecha == null ? 'Seleccionar'
+                          : '${_fecha!.day}/${_fecha!.month}/${_fecha!.year}',
                       style: const TextStyle(color: Colors.white),
                     ),
                   ),
@@ -1149,13 +960,11 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
               const SizedBox(width: 16),
               Expanded(
                 child: InkWell(
-                  onTap: _pickTime,
+                  onTap: _seleccionarHora,
                   child: InputDecorator(
                     decoration: const InputDecoration(labelText: 'Hora'),
                     child: Text(
-                      _selectedTime == null
-                          ? 'Seleccionar'
-                          : _selectedTime!.format(context),
+                      _hora == null ? 'Seleccionar' : _hora!.format(context),
                       style: const TextStyle(color: Colors.white),
                     ),
                   ),
@@ -1166,24 +975,18 @@ class _AddEditRaceSheetState extends State<_AddEditRaceSheet> {
           const SizedBox(height: 32),
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _submit,
-              child: const Text('Guardar Carrera'),
-            ),
+            child: ElevatedButton(onPressed: _guardar, child: const Text('Guardar Carrera')),
           ),
         ],
       ),
     );
   }
 
-  String _statusToString(RaceStatus status) {
-    switch (status) {
-      case RaceStatus.pendiente:
-        return 'Pendiente';
-      case RaceStatus.hecha:
-        return 'Hecha';
-      case RaceStatus.noRealizada:
-        return 'No Realizada';
+  String _estadoATexto(EstadoCarrera e) {
+    switch (e) {
+      case EstadoCarrera.pendiente: return 'Pendiente';
+      case EstadoCarrera.hecha: return 'Hecha';
+      case EstadoCarrera.noRealizada: return 'No Realizada';
     }
   }
 }

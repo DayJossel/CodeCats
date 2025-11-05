@@ -3,21 +3,27 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../core/session_repository.dart';
+import '../data/api_service.dart';
 import '../main.dart'; // Colores y MainScreen
 
-class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+class PantallaAutenticacion extends StatefulWidget {
+  const PantallaAutenticacion({super.key});
 
   @override
-  State<AuthScreen> createState() => _AuthScreenState();
+  State<PantallaAutenticacion> createState() => _EstadoPantallaAutenticacion();
 }
 
-class _AuthScreenState extends State<AuthScreen> {
-  bool _isLogin = true;
+// Compatibilidad con código que referencie AuthScreen
+class AuthScreen extends PantallaAutenticacion {
+  const AuthScreen({super.key});
+}
 
-  void _toggleAuthMode() {
+class _EstadoPantallaAutenticacion extends State<PantallaAutenticacion> {
+  bool _esLogin = true;
+
+  void _alternarModo() {
     setState(() {
-      _isLogin = !_isLogin;
+      _esLogin = !_esLogin;
     });
   }
 
@@ -27,9 +33,9 @@ class _AuthScreenState extends State<AuthScreen> {
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: _isLogin
-              ? _LoginView(onToggle: _toggleAuthMode)
-              : _SignUpView(onToggle: _toggleAuthMode),
+          child: _esLogin
+              ? _VistaLogin(onToggle: _alternarModo)
+              : _VistaRegistro(onToggle: _alternarModo),
         ),
       ),
     );
@@ -39,18 +45,18 @@ class _AuthScreenState extends State<AuthScreen> {
 // ------------------------------------------------------------
 // VISTA DE INICIO DE SESIÓN
 // ------------------------------------------------------------
-class _LoginView extends StatefulWidget {
+class _VistaLogin extends StatefulWidget {
   final VoidCallback onToggle;
-  const _LoginView({required this.onToggle});
+  const _VistaLogin({required this.onToggle});
 
   @override
-  State<_LoginView> createState() => _LoginViewState();
+  State<_VistaLogin> createState() => _EstadoVistaLogin();
 }
 
-class _LoginViewState extends State<_LoginView> {
+class _EstadoVistaLogin extends State<_VistaLogin> {
   final correoController = TextEditingController();
   final contraseniaController = TextEditingController();
-  bool _isLoading = false;
+  bool _cargando = false;
 
   @override
   void dispose() {
@@ -59,7 +65,7 @@ class _LoginViewState extends State<_LoginView> {
     super.dispose();
   }
 
-  Future<void> _login() async {
+  Future<void> _iniciarSesion() async {
     final correo = correoController.text.trim();
     final contrasenia = contraseniaController.text.trim();
 
@@ -71,49 +77,41 @@ class _LoginViewState extends State<_LoginView> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() => _cargando = true);
 
     try {
-      final resp = await http.post(
-        Uri.parse('http://157.137.187.110:8000/corredores/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'correo': correo, 'contrasenia': contrasenia}),
+      // Preferimos el servicio centralizado (maneja errores y formato)
+      final data = await ServicioApi.iniciarSesion(
+        correo: correo,
+        contrasenia: contrasenia,
       );
 
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body);
+      // Acepta tanto respuestas con {ok:true,...} como sin 'ok'
+      final corredorId = (data['corredor_id'] as num?)?.toInt() ??
+          (data['id'] as num?)?.toInt();
+      final nombre = (data['nombre'] as String?) ?? '';
+      final ok = (data['ok'] == true) || (corredorId != null);
 
-        if (data is Map && data['ok'] == true) {
-          // 1) Guardar sesión de forma persistente
-          await SessionRepository.saveLogin(
-            corredorId: (data['corredor_id'] as num).toInt(),
-            contrasenia: contrasenia,
-            nombre: (data['nombre'] as String?) ?? '',
-            correo: correo,
-          );
+      if (ok && corredorId != null) {
+        await RepositorioSesion.guardarLogin(
+          corredorId: corredorId,
+          contrasenia: contrasenia,
+          nombre: nombre,
+          correo: correo,
+        );
 
-          if (!mounted) return;
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Bienvenido $nombre')),
+        );
 
-          // 2) Feedback y navegación al Home
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Bienvenido ${data['nombre']}')),
-          );
-
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const MainScreen()),
-          );
-        } else {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Credenciales incorrectas')),
-          );
-        }
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const PantallaPrincipal()),
+        );
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error ${resp.statusCode}: ${resp.body}'),
-          ),
+          const SnackBar(content: Text('Credenciales incorrectas')),
         );
       }
     } catch (e) {
@@ -121,7 +119,7 @@ class _LoginViewState extends State<_LoginView> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _cargando = false);
     }
   }
 
@@ -140,12 +138,12 @@ class _LoginViewState extends State<_LoginView> {
           style: TextStyle(color: Colors.grey, fontSize: 16),
         ),
         SizedBox(height: MediaQuery.of(context).size.height * 0.1),
-        _buildTextField(
+        _construirCampoTexto(
           label: 'Correo electrónico',
           controller: correoController,
         ),
         const SizedBox(height: 16),
-        _buildTextField(
+        _construirCampoTexto(
           label: 'Contraseña',
           controller: contraseniaController,
           obscureText: true,
@@ -154,8 +152,8 @@ class _LoginViewState extends State<_LoginView> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _isLoading ? null : _login,
-            child: _isLoading
+            onPressed: _cargando ? null : _iniciarSesion,
+            child: _cargando
                 ? const CircularProgressIndicator(color: Colors.white)
                 : const Text('Iniciar Sesión'),
           ),
@@ -185,20 +183,20 @@ class _LoginViewState extends State<_LoginView> {
 // ------------------------------------------------------------
 // VISTA DE CREAR CUENTA
 // ------------------------------------------------------------
-class _SignUpView extends StatefulWidget {
+class _VistaRegistro extends StatefulWidget {
   final VoidCallback onToggle;
-  const _SignUpView({required this.onToggle});
+  const _VistaRegistro({required this.onToggle});
 
   @override
-  State<_SignUpView> createState() => _SignUpViewState();
+  State<_VistaRegistro> createState() => _EstadoVistaRegistro();
 }
 
-class _SignUpViewState extends State<_SignUpView> {
+class _EstadoVistaRegistro extends State<_VistaRegistro> {
   final nombreController = TextEditingController();
   final correoController = TextEditingController();
   final contraseniaController = TextEditingController();
   final telefonoController = TextEditingController();
-  bool _isLoading = false;
+  bool _cargando = false;
 
   @override
   void dispose() {
@@ -209,7 +207,7 @@ class _SignUpViewState extends State<_SignUpView> {
     super.dispose();
   }
 
-  Future<void> _register() async {
+  Future<void> _registrar() async {
     final nombre = nombreController.text.trim();
     final correo = correoController.text.trim();
     final contrasenia = contraseniaController.text.trim();
@@ -226,9 +224,10 @@ class _SignUpViewState extends State<_SignUpView> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() => _cargando = true);
 
     try {
+      // Registro directo (si quieres lo movemos luego a ServicioApi)
       final resp = await http.post(
         Uri.parse('http://157.137.187.110:8000/corredores'),
         headers: {'Content-Type': 'application/json'},
@@ -263,7 +262,7 @@ class _SignUpViewState extends State<_SignUpView> {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _cargando = false);
     }
   }
 
@@ -282,20 +281,20 @@ class _SignUpViewState extends State<_SignUpView> {
           style: TextStyle(color: Colors.grey, fontSize: 16),
         ),
         const SizedBox(height: 30),
-        _buildTextField(label: 'Nombre completo', controller: nombreController),
+        _construirCampoTexto(label: 'Nombre completo', controller: nombreController),
         const SizedBox(height: 16),
-        _buildTextField(
+        _construirCampoTexto(
           label: 'Correo electrónico',
           controller: correoController,
         ),
         const SizedBox(height: 16),
-        _buildTextField(
+        _construirCampoTexto(
           label: 'Contraseña',
           controller: contraseniaController,
           obscureText: true,
         ),
         const SizedBox(height: 16),
-        _buildTextField(
+        _construirCampoTexto(
           label: 'Número de teléfono',
           controller: telefonoController,
         ),
@@ -303,8 +302,8 @@ class _SignUpViewState extends State<_SignUpView> {
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
-            onPressed: _isLoading ? null : _register,
-            child: _isLoading
+            onPressed: _cargando ? null : _registrar,
+            child: _cargando
                 ? const CircularProgressIndicator(color: Colors.white)
                 : const Text('Crear Cuenta'),
           ),
@@ -334,7 +333,7 @@ class _SignUpViewState extends State<_SignUpView> {
 // ------------------------------------------------------------
 // HELPER REUTILIZABLE
 // ------------------------------------------------------------
-Widget _buildTextField({
+Widget _construirCampoTexto({
   required String label,
   required TextEditingController controller,
   bool obscureText = false,

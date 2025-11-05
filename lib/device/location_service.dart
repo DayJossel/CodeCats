@@ -1,15 +1,13 @@
 // lib/device/location_service.dart
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
-class LocationService {
+class ServicioUbicacion {
   /// Pide permisos y habilita el servicio si está apagado.
-  static Future<void> _ensurePermission() async {
+  static Future<void> _asegurarPermiso() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      // No forzamos settings aquí; avisamos por log y seguimos (usaremos fallback)
-      debugPrint('[LOC] El servicio de ubicación está desactivado.');
+      // Sin forzar settings; se continúa con fallback si aplica.
     }
 
     LocationPermission permission = await Geolocator.checkPermission();
@@ -19,8 +17,6 @@ class LocationService {
     }
 
     if (permission == LocationPermission.deniedForever) {
-      // El usuario denegó permanentemente. Puedes abrir ajustes si quieres:
-      // await Geolocator.openAppSettings();
       throw Exception(
         'Permiso de ubicación denegado permanentemente. Habilítalo en Ajustes.',
       );
@@ -33,10 +29,10 @@ class LocationService {
 
   /// Intenta obtener la ubicación actual con alta precisión y timeout,
   /// con fallback a la última conocida (si existe).
-  static Future<Position> getCurrentPosition({
+  static Future<Position> obtenerPosicionActual({
     Duration timeout = const Duration(seconds: 8),
   }) async {
-    await _ensurePermission();
+    await _asegurarPermiso();
 
     try {
       final pos = await Geolocator.getCurrentPosition(
@@ -45,18 +41,16 @@ class LocationService {
       );
       return pos;
     } on TimeoutException catch (_) {
-      debugPrint('[LOC] Timeout getCurrentPosition, probando lastKnown...');
       final last = await Geolocator.getLastKnownPosition();
       if (last != null) return last;
       rethrow;
-    } catch (e) {
-      debugPrint('[LOC] Error getCurrentPosition ($e), probando lastKnown...');
+    } catch (_) {
       final last = await Geolocator.getLastKnownPosition();
       if (last != null) return last;
       rethrow;
     }
   }
 
-  static String mapsUrlFrom(double lat, double lng) =>
+  static String urlMapsDesde(double lat, double lng) =>
       'https://maps.google.com/?q=$lat,$lng';
 }

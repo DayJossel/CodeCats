@@ -6,39 +6,39 @@ class VistaHistorial extends StatefulWidget {
   const VistaHistorial({super.key});
 
   @override
-  State<VistaHistorial> createState() => _VistaHistorialState();
+  State<VistaHistorial> createState() => _EstadoVistaHistorial();
 }
 
-class _VistaHistorialState extends State<VistaHistorial> {
-  bool _loading = true;
+class _EstadoVistaHistorial extends State<VistaHistorial> {
+  bool _cargando = true;
   String? _error;
   List<Map<String, dynamic>> _items = [];
-  late final VoidCallback _eventsListener;
+  late final VoidCallback _escuchadorEventos;
 
   @override
   void initState() {
     super.initState();
     // Cuando se cree una nueva alerta (CU-1), refresca
-    _eventsListener = () => _reload();
-    AppEvents.alertHistoryVersion.addListener(_eventsListener);
+    _escuchadorEventos = () => _recargar();
+    EventosApp.alertHistoryVersion.addListener(_escuchadorEventos);
 
     // Carga inicial
-    _reload();
+    _recargar();
   }
 
   @override
   void dispose() {
-    AppEvents.alertHistoryVersion.removeListener(_eventsListener);
+    EventosApp.alertHistoryVersion.removeListener(_escuchadorEventos);
     super.dispose();
   }
 
-  Future<void> _reload() async {
+  Future<void> _recargar() async {
     setState(() {
-      _loading = true;
+      _cargando = true;
       _error = null;
     });
     try {
-      final list = await ApiService.listarHistorial();
+      final list = await ServicioApi.listarHistorial();
       // Ordena por fecha descendente
       list.sort((a, b) {
         final fa = DateTime.tryParse(a['fecha']?.toString() ?? '') ??
@@ -49,17 +49,17 @@ class _VistaHistorialState extends State<VistaHistorial> {
       });
       setState(() {
         _items = list;
-        _loading = false;
+        _cargando = false;
       });
     } catch (e) {
       setState(() {
         _error = 'No se pudo cargar el historial. $e';
-        _loading = false;
+        _cargando = false;
       });
     }
   }
 
-  String _fmtFecha(String? iso) {
+  String _formatearFecha(String? iso) {
     final dt = DateTime.tryParse(iso ?? '');
     if (dt == null) return 'fecha desconocida';
     final l = dt.toLocal();
@@ -67,16 +67,16 @@ class _VistaHistorialState extends State<VistaHistorial> {
     const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
     final mes = (l.month >= 1 && l.month <= 12) ? meses[l.month - 1] : '--';
     return '${two(l.day)} $mes ${l.year} • ${two(l.hour)}:${two(l.minute)}';
-  }
+    }
 
   @override
   Widget build(BuildContext context) {
-    final body = _loading
+    final body = _cargando
         ? const Center(child: CircularProgressIndicator())
         : (_items.isEmpty
-            ? _EmptyState(onReload: _reload)
+            ? _EstadoVacio(onReload: _recargar)
             : RefreshIndicator(
-                onRefresh: _reload,
+                onRefresh: _recargar,
                 child: ListView.separated(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
@@ -85,7 +85,7 @@ class _VistaHistorialState extends State<VistaHistorial> {
                   itemBuilder: (context, i) {
                     final h = _items[i];
                     final id = (h['historial_id'] as num).toInt();
-                    final fecha = _fmtFecha(h['fecha']?.toString());
+                    final fecha = _formatearFecha(h['fecha']?.toString());
 
                     return ListTile(
                       contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
@@ -93,12 +93,13 @@ class _VistaHistorialState extends State<VistaHistorial> {
                         backgroundColor: Color(0xFFFFD54F), // amarillo suave
                         child: Icon(Icons.warning_amber_rounded, color: Colors.black),
                       ),
-                      title: Text(
-                        'Alerta #$id',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                      title: const Text(
+                        'Alerta',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                       ),
-                      subtitle: Text(fecha, style: const TextStyle(color: Colors.grey)),
-                      // onTap: () => _openDetalle(id), // opcional: ver detalle
+                      subtitle: Text('ID #$id • $fecha',
+                          style: const TextStyle(color: Colors.grey)),
+                      // onTap: () => _openDetalle(id), // opcional
                     );
                   },
                 ),
@@ -111,21 +112,21 @@ class _VistaHistorialState extends State<VistaHistorial> {
         actions: [
           IconButton(
             tooltip: 'Recargar',
-            onPressed: _reload,
+            onPressed: _recargar,
             icon: const Icon(Icons.refresh),
           ),
         ],
       ),
       body: SafeArea(
-        child: _error != null ? _ErrorState(message: _error!, onRetry: _reload) : body,
+        child: _error != null ? _EstadoError(message: _error!, onRetry: _recargar) : body,
       ),
     );
   }
 }
 
-class _EmptyState extends StatelessWidget {
+class _EstadoVacio extends StatelessWidget {
   final Future<void> Function() onReload;
-  const _EmptyState({required this.onReload});
+  const _EstadoVacio({required this.onReload});
 
   @override
   Widget build(BuildContext context) {
@@ -159,10 +160,10 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _ErrorState extends StatelessWidget {
+class _EstadoError extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
-  const _ErrorState({required this.message, required this.onRetry});
+  const _EstadoError({required this.message, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {

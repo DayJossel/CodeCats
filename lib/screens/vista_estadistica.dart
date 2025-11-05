@@ -17,17 +17,17 @@ class VistaEstadistica extends StatefulWidget {
   const VistaEstadistica({super.key, required this.year, required this.month});
 
   @override
-  State<VistaEstadistica> createState() => _VistaEstadisticaState();
+  State<VistaEstadistica> createState() => _EstadoVistaEstadistica();
 }
 
-class _VistaEstadisticaState extends State<VistaEstadistica> {
-  int year = 0;
-  int month = 0;
+class _EstadoVistaEstadistica extends State<VistaEstadistica> {
+  int anio = 0;
+  int mes = 0;
 
   int? corredorId;
   String? contrasenia;
 
-  bool _isLoading = false;
+  bool _cargando = false;
   String? _error;
 
   // Datos
@@ -41,24 +41,24 @@ class _VistaEstadisticaState extends State<VistaEstadistica> {
   @override
   void initState() {
     super.initState();
-    year = widget.year;
-    month = widget.month;
-    _init();
+    anio = widget.year;
+    mes = widget.month;
+    _inicializar();
   }
 
-  Future<void> _init() async {
+  Future<void> _inicializar() async {
     final prefs = await SharedPreferences.getInstance();
     corredorId = prefs.getInt('corredor_id');
     contrasenia = prefs.getString('contrasenia');
-    await _fetchStats();
+    await _cargarEstadisticas();
   }
 
-  Map<String, String> _authHeaders() => {
+  Map<String, String> _encabezadosAuth() => {
         'X-Corredor-Id': '${corredorId ?? ''}',
         'X-Contrasenia': contrasenia ?? '',
       };
 
-  Future<void> _fetchStats() async {
+  Future<void> _cargarEstadisticas() async {
     if (corredorId == null || contrasenia == null) {
       setState(() {
         _error = 'No hay sesión cargada';
@@ -66,12 +66,12 @@ class _VistaEstadisticaState extends State<VistaEstadistica> {
       return;
     }
     setState(() {
-      _isLoading = true;
+      _cargando = true;
       _error = null;
     });
     try {
-      final uri = Uri.parse('$_baseUrl/estadistica/mensual?year=$year&month=$month');
-      final resp = await http.get(uri, headers: _authHeaders());
+      final uri = Uri.parse('$_baseUrl/estadistica/mensual?year=$anio&month=$mes');
+      final resp = await http.get(uri, headers: _encabezadosAuth());
       if (resp.statusCode == 200) {
         final m = jsonDecode(resp.body) as Map<String, dynamic>;
         setState(() {
@@ -82,26 +82,21 @@ class _VistaEstadisticaState extends State<VistaEstadistica> {
           noRealizadas = m['no_realizadas'] as int;
           cumple = m['cumple_objetivo'] as bool?;
         });
-      } else if (resp.statusCode == 404) {
-        // No hay objetivo; intentar cargar métricas (ya vienen en respuesta 404? no)
-        // Para fallback local:
-        await _fallbackLocal();
       } else {
-        // otro error: fallback local
-        await _fallbackLocal();
+        await _respaldoLocal();
       }
     } on SocketException catch (_) {
-      await _fallbackLocal();
+      await _respaldoLocal();
     } on TimeoutException catch (_) {
-      await _fallbackLocal();
+      await _respaldoLocal();
     } on http.ClientException catch (_) {
-      await _fallbackLocal();
+      await _respaldoLocal();
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _cargando = false);
     }
   }
 
-  Future<void> _fallbackLocal() async {
+  Future<void> _respaldoLocal() async {
     // Lee 'races_storage_v1' y calcula métricas del mes (sin objetivo)
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -111,10 +106,11 @@ class _VistaEstadisticaState extends State<VistaEstadistica> {
         final List list = jsonDecode(raw) as List;
         for (final e in list) {
           final m = e as Map<String, dynamic>;
-          final dt = DateTime.parse(m['dateTime'] as String);
-          if (dt.year == year && dt.month == month) {
+          // Vista Calendario guarda: 'fechaHora' (ISO) y 'estado' (índice)
+          final dt = DateTime.parse(m['fechaHora'] as String);
+          if (dt.year == anio && dt.month == mes) {
             _total += 1;
-            final statusIndex = (m['status'] as int?) ?? 0;
+            final statusIndex = (m['estado'] as int?) ?? 0;
             if (statusIndex == 1) {
               _hechas += 1;
             } else if (statusIndex == 2) {
@@ -141,24 +137,22 @@ class _VistaEstadisticaState extends State<VistaEstadistica> {
     }
   }
 
-  Future<void> _setObjetivo() async {
-    final controller = TextEditingController(text: (objetivo ?? '').toString());
-    final value = await showDialog<int?>(
+  Future<void> _definirObjetivo() async {
+    final controlador = TextEditingController(text: (objetivo ?? '').toString());
+    final valor = await showDialog<int?>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Objetivo mensual'),
         content: TextField(
-          controller: controller,
+          controller: controlador,
           keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Cantidad de carreras',
-          ),
+          decoration: const InputDecoration(labelText: 'Cantidad de carreras'),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, null), child: const Text('Cancelar')),
           TextButton(
             onPressed: () {
-              final t = int.tryParse(controller.text.trim());
+              final t = int.tryParse(controlador.text.trim());
               Navigator.pop(ctx, t);
             },
             child: const Text('Guardar'),
@@ -166,23 +160,23 @@ class _VistaEstadisticaState extends State<VistaEstadistica> {
         ],
       ),
     );
-    if (value == null) return;
+    if (valor == null) return;
 
     try {
-      final uri = Uri.parse('$_baseUrl/objetivos/mensual?year=$year&month=$month');
+      final uri = Uri.parse('$_baseUrl/objetivos/mensual?year=$anio&month=$mes');
       final resp = await http.post(
         uri,
         headers: {
-          ..._authHeaders(),
+          ..._encabezadosAuth(),
           'Content-Type': 'application/json',
         },
-        body: jsonEncode({'objetivo': value}),
+        body: jsonEncode({'objetivo': valor}),
       );
       if (resp.statusCode == 201 || resp.statusCode == 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Objetivo guardado')),
         );
-        await _fetchStats();
+        await _cargarEstadisticas();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error al guardar objetivo (${resp.statusCode})')),
@@ -195,41 +189,40 @@ class _VistaEstadisticaState extends State<VistaEstadistica> {
     }
   }
 
-  void _prevMonth() {
-    final d = DateTime(year, month, 1);
+  void _mesAnterior() {
+    final d = DateTime(anio, mes, 1);
     final p = DateTime(d.year, d.month - 1, 1);
     setState(() {
-      year = p.year;
-      month = p.month;
+      anio = p.year;
+      mes = p.month;
     });
-    _fetchStats();
+    _cargarEstadisticas();
   }
 
-  void _nextMonth() {
-    final d = DateTime(year, month, 1);
+  void _mesSiguiente() {
+    final d = DateTime(anio, mes, 1);
     final n = DateTime(d.year, d.month + 1, 1);
     setState(() {
-      year = n.year;
-      month = n.month;
+      anio = n.year;
+      mes = n.month;
     });
-    _fetchStats();
+    _cargarEstadisticas();
   }
 
   @override
   Widget build(BuildContext context) {
-    final title = 'Estadística $month/$year';
-    final ok = !_isLoading && _error == null;
+    final titulo = 'Estadística $mes/$anio';
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(title),
+        title: Text(titulo),
         backgroundColor: backgroundColor,
         actions: [
-          IconButton(onPressed: _prevMonth, icon: const Icon(Icons.chevron_left)),
-          IconButton(onPressed: _nextMonth, icon: const Icon(Icons.chevron_right)),
+          IconButton(onPressed: _mesAnterior, icon: const Icon(Icons.chevron_left)),
+          IconButton(onPressed: _mesSiguiente, icon: const Icon(Icons.chevron_right)),
         ],
       ),
-      body: _isLoading
+      body: _cargando
           ? const Center(child: CircularProgressIndicator(color: primaryColor))
           : Padding(
               padding: const EdgeInsets.all(16.0),
@@ -246,15 +239,15 @@ class _VistaEstadisticaState extends State<VistaEstadistica> {
                       child: Text(_error!, style: const TextStyle(color: Colors.orange)),
                     ),
                   const SizedBox(height: 12),
-                  _StatTile(label: 'Objetivo mensual', value: objetivo?.toString() ?? 'No registrado'),
+                  _FichaEstadistica(etiqueta: 'Objetivo mensual', valor: objetivo?.toString() ?? 'No registrado'),
                   const SizedBox(height: 8),
-                  _StatTile(label: 'Total programadas', value: '$total'),
+                  _FichaEstadistica(etiqueta: 'Total programadas', valor: '$total'),
                   const SizedBox(height: 8),
-                  _StatTile(label: 'Hechas', value: '$hechas'),
+                  _FichaEstadistica(etiqueta: 'Hechas', valor: '$hechas'),
                   const SizedBox(height: 8),
-                  _StatTile(label: 'No realizadas', value: '$noRealizadas'),
+                  _FichaEstadistica(etiqueta: 'No realizadas', valor: '$noRealizadas'),
                   const SizedBox(height: 8),
-                  _StatTile(label: 'Pendientes', value: '$pendientes'),
+                  _FichaEstadistica(etiqueta: 'Pendientes', valor: '$pendientes'),
                   const SizedBox(height: 16),
                   if (cumple != null)
                     Row(
@@ -280,7 +273,7 @@ class _VistaEstadisticaState extends State<VistaEstadistica> {
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.flag),
                       label: Text(objetivo == null ? 'Registrar objetivo' : 'Editar objetivo'),
-                      onPressed: (corredorId == null || contrasenia == null) ? null : _setObjetivo,
+                      onPressed: (corredorId == null || contrasenia == null) ? null : _definirObjetivo,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
                         foregroundColor: Colors.black,
@@ -295,10 +288,10 @@ class _VistaEstadisticaState extends State<VistaEstadistica> {
   }
 }
 
-class _StatTile extends StatelessWidget {
-  final String label;
-  final String value;
-  const _StatTile({required this.label, required this.value});
+class _FichaEstadistica extends StatelessWidget {
+  final String etiqueta;
+  final String valor;
+  const _FichaEstadistica({required this.etiqueta, required this.valor});
 
   @override
   Widget build(BuildContext context) {
@@ -310,8 +303,8 @@ class _StatTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Row(
         children: [
-          Expanded(child: Text(label, style: const TextStyle(color: Colors.white70))),
-          Text(value, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          Expanded(child: Text(etiqueta, style: const TextStyle(color: Colors.white70))),
+          Text(valor, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ],
       ),
     );

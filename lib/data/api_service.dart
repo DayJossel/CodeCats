@@ -2,23 +2,22 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../core/session_repository.dart';
 
-class ApiHttpException implements Exception {
-  final String message;
-  final int? statusCode;
-  ApiHttpException(this.message, {this.statusCode});
+class ExcepcionApiHttp implements Exception {
+  final String mensaje;
+  final int? codigoEstado;
+  ExcepcionApiHttp(this.mensaje, {this.codigoEstado});
   @override
-  String toString() => 'ApiHttpException($statusCode): $message';
+  String toString() => 'ExcepcionApiHttp($codigoEstado): $mensaje';
 }
 
-class ApiService {
+class ServicioApi {
   static const String baseUrl = 'http://157.137.187.110:8000';
 
-  /// Headers con credenciales. Falla si no hay sesión.
-  static Future<Map<String, String>> _authHeaders() async {
-    final cid = await SessionRepository.corredorId();
-    final pwd = await SessionRepository.contrasenia();
+  static Future<Map<String, String>> _encabezadosAutenticacion() async {
+    final cid = await RepositorioSesion.obtenerCorredorId();
+    final pwd = await RepositorioSesion.obtenerContrasenia();
     if (cid == null || pwd == null || pwd.isEmpty) {
-      throw ApiHttpException('No hay credenciales de sesión.');
+      throw ExcepcionApiHttp('No hay credenciales de sesión.');
     }
     return {
       'Accept': 'application/json',
@@ -29,33 +28,33 @@ class ApiService {
   }
 
   // ---------- Contactos ----------
-
-  /// GET /contactos  ->  List<Map<String,dynamic>>
-  static Future<List<Map<String, dynamic>>> getContactos() async {
-    final headers = await _authHeaders();
+  static Future<List<Map<String, dynamic>>> obtenerContactos() async {
+    final headers = await _encabezadosAutenticacion();
     final url = Uri.parse('$baseUrl/contactos');
 
     final resp = await http.get(url, headers: headers)
-      .timeout(const Duration(seconds: 15));
+        .timeout(const Duration(seconds: 15));
 
     if (resp.statusCode == 200) {
       final data = jsonDecode(resp.body);
       if (data is List) return data.cast<Map<String, dynamic>>();
-      throw ApiHttpException('Formato inesperado de /contactos');
+      throw ExcepcionApiHttp('Formato inesperado de /contactos');
     }
-    _throwHttp(resp);
+    _lanzarHttp(resp);
   }
 
-  // ---------- Alertas ----------
+  /// Alias temporal para compatibilidad con código existente.
+  static Future<List<Map<String, dynamic>>> getContactos() =>
+      obtenerContactos();
 
-  /// POST /alertas/activar  ->  { historial_id, ... }
+  // ---------- Alertas ----------
   static Future<Map<String, dynamic>> activarAlerta({
     required String mensaje,
     required double lat,
     required double lng,
     required List<int> contactoIds,
   }) async {
-    final headers = await _authHeaders();
+    final headers = await _encabezadosAutenticacion();
     final url = Uri.parse('$baseUrl/alertas/activar');
 
     final body = jsonEncode({
@@ -66,20 +65,18 @@ class ApiService {
     });
 
     final resp = await http.post(url, headers: headers, body: body)
-      .timeout(const Duration(seconds: 20));
+        .timeout(const Duration(seconds: 20));
 
     if (resp.statusCode == 201 || resp.statusCode == 200) {
       final data = jsonDecode(resp.body);
       if (data is Map<String, dynamic>) return data;
-      throw ApiHttpException('Formato inesperado de /alertas/activar');
+      throw ExcepcionApiHttp('Formato inesperado de /alertas/activar');
     }
-    _throwHttp(resp);
+    _lanzarHttp(resp);
   }
 
   // ---------- Corredores (login) ----------
-
-  /// POST /corredores/login  ->  { corredor_id, nombre, correo, ... }
-  static Future<Map<String, dynamic>> login({
+  static Future<Map<String, dynamic>> iniciarSesion({
     required String correo,
     required String contrasenia,
   }) async {
@@ -97,35 +94,43 @@ class ApiService {
     if (resp.statusCode == 200) {
       final data = jsonDecode(resp.body);
       if (data is Map<String, dynamic>) return data;
-      throw ApiHttpException('Formato inesperado de /corredores/login');
+      throw ExcepcionApiHttp('Formato inesperado de /corredores/login');
     }
-    _throwHttp(resp);
+    _lanzarHttp(resp);
   }
 
-  // ---------- Helpers ----------
+  /// Alias temporal para compatibilidad.
+  static Future<Map<String, dynamic>> login({
+    required String correo,
+    required String contrasenia,
+  }) =>
+      iniciarSesion(correo: correo, contrasenia: contrasenia);
 
-  static Never _throwHttp(http.Response resp) {
-    try {
-      final j = jsonDecode(resp.body);
-      throw ApiHttpException(j.toString(), statusCode: resp.statusCode);
-    } catch (_) {
-      throw ApiHttpException('HTTP ${resp.statusCode}: ${resp.body}',
-          statusCode: resp.statusCode);
-    }
-  }
-
-  // GET /alertas/historial  ->  List<Map<String,dynamic>>
+  // ---------- Historial ----------
   static Future<List<Map<String, dynamic>>> listarHistorial() async {
-    final headers = await _authHeaders();
+    final headers = await _encabezadosAutenticacion();
     final url = Uri.parse('$baseUrl/alertas/historial');
 
-    final resp = await http.get(url, headers: headers).timeout(const Duration(seconds: 15));
+    final resp = await http.get(url, headers: headers)
+        .timeout(const Duration(seconds: 15));
     if (resp.statusCode == 200) {
       final data = jsonDecode(resp.body);
       if (data is List) return data.cast<Map<String, dynamic>>();
-      throw ApiHttpException('Formato inesperado de /alertas/historial');
+      throw ExcepcionApiHttp('Formato inesperado de /alertas/historial');
     }
-    _throwHttp(resp);
+    _lanzarHttp(resp);
   }
 
+  // ---------- Helper ----------
+  static Never _lanzarHttp(http.Response resp) {
+    try {
+      final j = jsonDecode(resp.body);
+      throw ExcepcionApiHttp(j.toString(), codigoEstado: resp.statusCode); // ← fix aquí
+    } catch (_) {
+      throw ExcepcionApiHttp(
+        'HTTP ${resp.statusCode}: ${resp.body}',
+        codigoEstado: resp.statusCode, // ← y aquí
+      );
+    }
+  }
 }

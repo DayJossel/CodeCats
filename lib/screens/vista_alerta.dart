@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../main.dart';
-import 'vista_historial.dart'; // Importamos la vista de historial
+import 'vista_historial.dart';
 import 'vista_ubicacion.dart';
 import '../usecases/emergency_alert_uc.dart';
 
@@ -9,58 +9,58 @@ class VistaAlerta extends StatefulWidget {
   const VistaAlerta({super.key});
 
   @override
-  State<VistaAlerta> createState() => _VistaAlertaState();
+  State<VistaAlerta> createState() => _EstadoVistaAlerta();
 }
 
-class _VistaAlertaState extends State<VistaAlerta> {
-  bool _sending = false;
-  String? _statusMsg;
-  bool _isCountingDown = false;
-  int _countdownValue = 3;
+class _EstadoVistaAlerta extends State<VistaAlerta> {
+  bool _enviando = false;
+  String? _mensajeEstado;
+  bool _contando = false;
+  int _valorCuenta = 3;
   Timer? _timer;
-  double _waveAnimation = 0.0;
-  Timer? _waveTimer;
+  double _animOnda = 0.0;
+  Timer? _timerOnda;
 
-  void _startCountdown() {
+  void _iniciarCuentaAtras() {
     setState(() {
-      _isCountingDown = true;
-      _countdownValue = 3;
-      _waveAnimation = 0.0;
+      _contando = true;
+      _valorCuenta = 3;
+      _animOnda = 0.0;
     });
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
-        if (_countdownValue > 1) {
-          _countdownValue--;
+        if (_valorCuenta > 1) {
+          _valorCuenta--;
         } else {
           _timer?.cancel();
-          _waveTimer?.cancel();
-          _isCountingDown = false;
-          _showSosConfirmationDialog(context);
+          _timerOnda?.cancel();
+          _contando = false;
+          _mostrarDialogoConfirmacionSos(context);
         }
       });
     });
 
-    _waveTimer = Timer.periodic(const Duration(milliseconds: 600), (timer) {
+    _timerOnda = Timer.periodic(const Duration(milliseconds: 600), (timer) {
       setState(() {
-        _waveAnimation = _waveAnimation == 0.0 ? 1.0 : 0.0;
+        _animOnda = _animOnda == 0.0 ? 1.0 : 0.0;
       });
     });
   }
 
-  Future<void> _sendEmergency() async {
-    if (_sending) return;
-    setState(() { _sending = true; _statusMsg = null; });
+  Future<void> _enviarEmergencia() async {
+    if (_enviando) return;
+    setState(() { _enviando = true; _mensajeEstado = null; });
 
     try {
-      final res = await EmergencyAlertUC.trigger();
+      final res = await CasoUsoAlertaEmergencia.activarAlertaEmergencia();
       final okTotal = res.fallidos.isEmpty;
       final base = okTotal
           ? 'Alerta enviada a todos los contactos.'
           : 'Alerta enviada con fallos a ${res.fallidos.length} contacto(s).';
       final hid = res.historialId != null ? ' (Historial #${res.historialId})' : '';
       if (!mounted) return;
-      setState(() => _statusMsg = base + hid);
+      setState(() => _mensajeEstado = base + hid);
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -72,9 +72,9 @@ class _VistaAlertaState extends State<VistaAlerta> {
           duration: const Duration(seconds: 3),
         ),
       );
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
-      setState(() => _statusMsg = '❌ No se pudo enviar la alerta: $e');
+      setState(() => _mensajeEstado = '❌ No se pudo enviar la alerta.');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('❌ Falló el envío de la alerta. Intenta de nuevo.'),
@@ -84,21 +84,21 @@ class _VistaAlertaState extends State<VistaAlerta> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _sending = false);
+      if (mounted) setState(() => _enviando = false);
     }
   }
 
-  void _cancelCountdown() {
+  void _cancelarCuentaAtras() {
     _timer?.cancel();
-    _waveTimer?.cancel();
+    _timerOnda?.cancel();
     setState(() {
-      _isCountingDown = false;
-      _countdownValue = 3;
-      _waveAnimation = 0.0;
+      _contando = false;
+      _valorCuenta = 3;
+      _animOnda = 0.0;
     });
   }
 
-  void _showSosConfirmationDialog(BuildContext context) {
+  void _mostrarDialogoConfirmacionSos(BuildContext context) {
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -132,7 +132,7 @@ class _VistaAlertaState extends State<VistaAlerta> {
                   child: const Text('Enviar Alerta'),
                   onPressed: () async {
                     Navigator.of(context).pop();
-                    await _sendEmergency();
+                    await _enviarEmergencia();
                   },
                 ),
               ],
@@ -146,7 +146,7 @@ class _VistaAlertaState extends State<VistaAlerta> {
   @override
   void dispose() {
     _timer?.cancel();
-    _waveTimer?.cancel();
+    _timerOnda?.cancel();
     super.dispose();
   }
 
@@ -179,29 +179,29 @@ class _VistaAlertaState extends State<VistaAlerta> {
                 child: Stack(
                   alignment: Alignment.center,
                   children: [
-                    if (_isCountingDown)
+                    if (_contando)
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 600),
-                        width: 180 + (_waveAnimation * 40),
-                        height: 180 + (_waveAnimation * 40),
+                        width: 180 + (_animOnda * 40),
+                        height: 180 + (_animOnda * 40),
                         decoration: BoxDecoration(
                           color: Colors.red.withOpacity(
-                            0.3 - (_waveAnimation * 0.2),
+                            0.3 - (_animOnda * 0.2),
                           ),
                           shape: BoxShape.circle,
                         ),
                       ),
                     GestureDetector(
-                      onTapDown: (_) => _startCountdown(),
-                      onTapUp: (_) => _cancelCountdown(),
-                      onTapCancel: _cancelCountdown,
+                      onTapDown: (_) => _iniciarCuentaAtras(),
+                      onTapUp: (_) => _cancelarCuentaAtras(),
+                      onTapCancel: _cancelarCuentaAtras,
                       child: Container(
                         width: 180,
                         height: 180,
                         decoration: BoxDecoration(
-                          color: _isCountingDown ? Colors.red : accentColor,
+                          color: _contando ? Colors.red : accentColor,
                           shape: BoxShape.circle,
-                          boxShadow: _isCountingDown
+                          boxShadow: _contando
                               ? [
                                   BoxShadow(
                                     color: Colors.red.withOpacity(0.6),
@@ -212,9 +212,9 @@ class _VistaAlertaState extends State<VistaAlerta> {
                               : null,
                         ),
                         child: Center(
-                          child: _isCountingDown
+                          child: _contando
                               ? Text(
-                                  '$_countdownValue',
+                                  '$_valorCuenta',
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 64,
@@ -238,14 +238,13 @@ class _VistaAlertaState extends State<VistaAlerta> {
               const SizedBox(height: 15),
               Center(
                 child: Text(
-                  _isCountingDown
-                      ? 'Mantén presionado... $_countdownValue'
+                  _contando
+                      ? 'Mantén presionado... $_valorCuenta'
                       : 'Mantén presionado 3 segundos',
                   style: const TextStyle(color: Colors.grey),
                 ),
               ),
               const Spacer(),
-              // Botón de Compartir Ubicación
               GestureDetector(
                 onTap: () {
                   Navigator.push(
@@ -300,7 +299,6 @@ class _VistaAlertaState extends State<VistaAlerta> {
                 ),
               ),
               const SizedBox(height: 15),
-              // NUEVO BOTÓN: Historial de Alertas
               GestureDetector(
                 onTap: () {
                   Navigator.push(

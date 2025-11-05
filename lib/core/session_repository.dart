@@ -1,12 +1,12 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-class SessionRepository {
+class RepositorioSesion {
   static const _kCorredorId = 'corredor_id';
   static const _kContrasenia = 'contrasenia';
   static const _kNombre = 'nombre_corredor';
   static const _kCorreo = 'correo_corredor';
 
-  static Future<void> saveLogin({
+  static Future<void> guardarLogin({
     required int corredorId,
     required String contrasenia,
     required String nombre,
@@ -19,10 +19,10 @@ class SessionRepository {
     await sp.setString(_kCorreo, correo);
   }
 
-  static Future<int?> corredorId() async =>
+  static Future<int?> obtenerCorredorId() async =>
       (await SharedPreferences.getInstance()).getInt(_kCorredorId);
 
-  static Future<String?> contrasenia() async =>
+  static Future<String?> obtenerContrasenia() async =>
       (await SharedPreferences.getInstance()).getString(_kContrasenia);
 
   static Future<String?> nombre() async =>
@@ -31,7 +31,7 @@ class SessionRepository {
   static Future<String?> correo() async =>
       (await SharedPreferences.getInstance()).getString(_kCorreo);
 
-  static Future<void> clear() async {
+  static Future<void> limpiar() async {
     final sp = await SharedPreferences.getInstance();
     await sp.remove(_kCorredorId);
     await sp.remove(_kContrasenia);

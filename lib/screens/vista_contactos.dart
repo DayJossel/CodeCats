@@ -1,3 +1,4 @@
+// lib/screens/vista_contactos.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,19 +6,21 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 
+const String _baseUrl = 'http://157.137.187.110:8000';
+
 class VistaContactos extends StatefulWidget {
   const VistaContactos({super.key});
 
   @override
-  State<VistaContactos> createState() => _VistaContactosState();
+  State<VistaContactos> createState() => _EstadoVistaContactos();
 }
 
-class _VistaContactosState extends State<VistaContactos> {
-  List<dynamic> _contactos = [];
-  bool _isLoading = false;
+class _EstadoVistaContactos extends State<VistaContactos> {
+  List<Map<String, dynamic>> _contactos = [];
+  bool _cargando = false;
   int? corredorId;
   String? contrasenia;
-  bool _isUserLoaded = false;
+  bool _usuarioCargado = false;
 
   @override
   void initState() {
@@ -30,73 +33,72 @@ class _VistaContactosState extends State<VistaContactos> {
     corredorId = prefs.getInt('corredor_id');
     contrasenia = prefs.getString('contrasenia');
 
-    setState(() => _isUserLoaded = true);
+    setState(() => _usuarioCargado = true);
 
     if (corredorId != null && contrasenia != null) {
-      _fetchContactos();
+      _listarContactos();
     }
   }
 
-  Future<void> _fetchContactos() async {
+  Map<String, String> _encabezadosAuth() => {
+        'X-Corredor-Id': '${corredorId ?? ''}',
+        'X-Contrasenia': contrasenia ?? '',
+      };
+
+  Future<void> _listarContactos() async {
     if (corredorId == null || contrasenia == null) return;
-    setState(() => _isLoading = true);
+    setState(() => _cargando = true);
     try {
       final response = await http.get(
-        Uri.parse('http://157.137.187.110:8000/contactos'),
-        headers: {
-          'X-Corredor-Id': '$corredorId',
-          'X-Contrasenia': contrasenia!,
-        },
+        Uri.parse('$_baseUrl/contactos'),
+        headers: _encabezadosAuth(),
       );
       if (response.statusCode == 200) {
-        setState(() {
-          _contactos = jsonDecode(response.body);
-        });
+        final data = (jsonDecode(response.body) as List)
+            .map((e) => (e as Map<String, dynamic>))
+            .toList();
+        setState(() => _contactos = data);
       } else {
-        _showSnack('Error al obtener contactos (${response.statusCode})');
+        _mostrarSnack('Error al obtener contactos (${response.statusCode})');
       }
     } catch (e) {
-      _showSnack('Error de conexión: $e');
+      _mostrarSnack('Error de conexión: $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _cargando = false);
     }
   }
 
-  Future<void> _deleteContacto(int contactoId) async {
+  Future<void> _eliminarContacto(int contactoId) async {
     try {
       final response = await http.delete(
-        Uri.parse('http://157.137.187.110:8000/contactos/$contactoId'),
-        headers: {
-          'X-Corredor-Id': '$corredorId',
-          'X-Contrasenia': contrasenia!,
-        },
+        Uri.parse('$_baseUrl/contactos/$contactoId'),
+        headers: _encabezadosAuth(),
       );
       if (response.statusCode == 200) {
-        _showSnack('Contacto eliminado correctamente');
-        _fetchContactos();
+        _mostrarSnack('Contacto eliminado correctamente');
+        _listarContactos();
       } else {
-        _showSnack('Error al eliminar (${response.statusCode})');
+        _mostrarSnack('Error al eliminar (${response.statusCode})');
       }
     } catch (e) {
-      _showSnack('Error: $e');
+      _mostrarSnack('Error: $e');
     }
   }
 
-  void _showSnack(String msg) {
+  void _mostrarSnack(String msg) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  void _showAddContactModal({Map<String, dynamic>? contacto}) {
-    if (!_isUserLoaded || corredorId == null || contrasenia == null) {
-      _showSnack(
-        'Espera a que se cargue tu sesión antes de agregar contactos.',
-      );
+  void _mostrarModalAgregarEditar({Map<String, dynamic>? contacto}) {
+    if (!_usuarioCargado || corredorId == null || contrasenia == null) {
+      _mostrarSnack('Espera a que se cargue tu sesión antes de agregar contactos.');
       return;
     }
 
-    // 🔒 Límite de 5 contactos
+    // 🔒 Límite de 5 contactos (solo al crear)
     if (contacto == null && _contactos.length >= 5) {
-      _showSnack('Solo puedes registrar hasta 5 contactos de confianza.');
+      _mostrarSnack('Solo puedes registrar hasta 5 contactos de confianza.');
       return;
     }
 
@@ -106,14 +108,12 @@ class _VistaContactosState extends State<VistaContactos> {
       backgroundColor: Colors.transparent,
       builder: (context) {
         return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: _AddContactSheet(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: _HojaAgregarEditarContacto(
             contacto: contacto,
             corredorId: corredorId!,
             contrasenia: contrasenia!,
-            onSave: _fetchContactos,
+            onSave: _listarContactos,
             totalContactos: _contactos.length,
           ),
         );
@@ -121,23 +121,20 @@ class _VistaContactosState extends State<VistaContactos> {
     );
   }
 
-  void _confirmDelete(int contactoId) {
+  void _confirmarEliminar(int contactoId) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: const Text("Eliminar contacto"),
-        content: const Text(
-          "¿Seguro que deseas eliminar este contacto de confianza?",
-        ),
+        content: const Text("¿Seguro que deseas eliminar este contacto de confianza?"),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("Cancelar"),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              _deleteContacto(contactoId);
+              _eliminarContacto(contactoId);
             },
             child: const Text("Eliminar", style: TextStyle(color: Colors.red)),
           ),
@@ -148,68 +145,65 @@ class _VistaContactosState extends State<VistaContactos> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_isUserLoaded) {
+    if (!_usuarioCargado) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator(color: primaryColor)),
       );
     }
 
     return Scaffold(
-      body: _isLoading
+      body: _cargando
           ? const Center(child: CircularProgressIndicator(color: primaryColor))
           : _contactos.isEmpty
-          ? _buildEmptyState()
-          : RefreshIndicator(
-              onRefresh: _fetchContactos,
-              color: primaryColor,
-              child: ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: _contactos.length,
-                itemBuilder: (context, index) {
-                  final c = _contactos[index];
-                  return Card(
-                    color: cardColor,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: ListTile(
-                      leading: const CircleAvatar(
-                        backgroundColor: primaryColor,
-                        child: Icon(Icons.person, color: Colors.black),
-                      ),
-                      title: Text(c['nombre']),
-                      subtitle: Text("${c['relacion']} • ${c['telefono']}"),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (value) {
-                          if (value == 'edit') {
-                            _showAddContactModal(contacto: c);
-                          } else if (value == 'delete') {
-                            _confirmDelete(c['contacto_id']);
-                          }
-                        },
-                        itemBuilder: (ctx) => [
-                          const PopupMenuItem(
-                            value: 'edit',
-                            child: Text('Editar'),
+              ? _construirEstadoVacio()
+              : RefreshIndicator(
+                  onRefresh: _listarContactos,
+                  color: primaryColor,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _contactos.length,
+                    itemBuilder: (context, index) {
+                      final c = _contactos[index];
+                      final id = (c['contacto_id'] as num).toInt();
+                      final nombre = (c['nombre'] ?? '') as String;
+                      final tel = (c['telefono'] ?? '') as String;
+                      final rel = (c['relacion'] ?? 'N/A') as String;
+
+                      return Card(
+                        color: cardColor,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: ListTile(
+                          leading: const CircleAvatar(
+                            backgroundColor: primaryColor,
+                            child: Icon(Icons.person, color: Colors.black),
                           ),
-                          const PopupMenuItem(
-                            value: 'delete',
-                            child: Text('Eliminar'),
+                          title: Text(nombre),
+                          subtitle: Text("$rel • $tel"),
+                          trailing: PopupMenuButton<String>(
+                            onSelected: (value) {
+                              if (value == 'edit') {
+                                _mostrarModalAgregarEditar(contacto: c);
+                              } else if (value == 'delete') {
+                                _confirmarEliminar(id);
+                              }
+                            },
+                            itemBuilder: (ctx) => const [
+                              PopupMenuItem(value: 'edit', child: Text('Editar')),
+                              PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: primaryColor,
         onPressed: () {
           if (_contactos.length >= 5) {
-            _showSnack('Solo puedes registrar hasta 5 contactos de confianza.');
+            _mostrarSnack('Solo puedes registrar hasta 5 contactos de confianza.');
           } else {
-            _showAddContactModal();
+            _mostrarModalAgregarEditar();
           }
         },
         child: const Icon(Icons.add, color: Colors.black),
@@ -217,24 +211,25 @@ class _VistaContactosState extends State<VistaContactos> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _construirEstadoVacio() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.phone_in_talk, color: Colors.grey[600], size: 60),
-          const SizedBox(height: 20),
-          const Text(
-            'No hay contactos agregados',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 10),
-          const Text(
-            'Agrega contactos de confianza para recibir alertas\ncuando necesites ayuda',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.phone_in_talk, color: Colors.grey[600], size: 60),
+            const SizedBox(height: 20),
+            const Text('No hay contactos agregados',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            const Text(
+              'Agrega contactos de confianza para recibir alertas\ncuando necesites ayuda',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -243,14 +238,14 @@ class _VistaContactosState extends State<VistaContactos> {
 // -------------------------------------------------------------
 // FORMULARIO DE AGREGAR / EDITAR CONTACTO
 // -------------------------------------------------------------
-class _AddContactSheet extends StatefulWidget {
+class _HojaAgregarEditarContacto extends StatefulWidget {
   final Map<String, dynamic>? contacto;
   final int corredorId;
   final String contrasenia;
   final VoidCallback onSave;
   final int totalContactos;
 
-  const _AddContactSheet({
+  const _HojaAgregarEditarContacto({
     this.contacto,
     required this.corredorId,
     required this.contrasenia,
@@ -259,14 +254,14 @@ class _AddContactSheet extends StatefulWidget {
   });
 
   @override
-  State<_AddContactSheet> createState() => _AddContactSheetState();
+  State<_HojaAgregarEditarContacto> createState() => _EstadoHojaAgregarEditarContacto();
 }
 
-class _AddContactSheetState extends State<_AddContactSheet> {
+class _EstadoHojaAgregarEditarContacto extends State<_HojaAgregarEditarContacto> {
   final nombreController = TextEditingController();
   final telefonoController = TextEditingController();
   final relacionController = TextEditingController();
-  bool _isSaving = false;
+  bool _guardando = false;
 
   @override
   void initState() {
@@ -278,11 +273,20 @@ class _AddContactSheetState extends State<_AddContactSheet> {
     }
   }
 
+  @override
+  void dispose() {
+    nombreController.dispose();
+    telefonoController.dispose();
+    relacionController.dispose();
+    super.dispose();
+  }
+
   Future<void> _guardarContacto() async {
+    // Revalida límite por si se quedó abierto el modal y el usuario añadió uno
     if (widget.contacto == null && widget.totalContactos >= 5) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Solo puedes tener hasta 5 contactos.')),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Solo puedes tener hasta 5 contactos.')));
       Navigator.of(context).pop();
       return;
     }
@@ -292,45 +296,44 @@ class _AddContactSheetState extends State<_AddContactSheet> {
     final relacion = relacionController.text.trim();
 
     if (nombre.isEmpty || telefonoRaw.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor llena los campos obligatorios')),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Por favor llena los campos obligatorios')));
       return;
     }
 
     // --- Normaliza el teléfono a solo dígitos ---
     String telefonoDigits = telefonoRaw.replaceAll(RegExp(r'\D'), '');
-    // Casos comunes en MX: +52XXXXXXXXXX, 52XXXXXXXXXX, 521XXXXXXXXXX (WhatsApp)
+    // Casos comunes MX: 521xxxxxxxxxx (WhatsApp), 52xxxxxxxxxx
     if (telefonoDigits.length == 13 && telefonoDigits.startsWith('521')) {
       telefonoDigits = telefonoDigits.substring(3);
     } else if (telefonoDigits.length == 12 && telefonoDigits.startsWith('52')) {
       telefonoDigits = telefonoDigits.substring(2);
     }
 
-    // Validación estricta: exactamente 10 dígitos
+    // Validación estricta MX: exactamente 10 dígitos
     if (telefonoDigits.length != 10) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El teléfono debe tener exactamente 10 dígitos.')),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('El teléfono debe tener exactamente 10 dígitos.')));
       return;
     }
 
-    setState(() => _isSaving = true);
+    setState(() => _guardando = true);
 
-    final body = {
+    final body = <String, dynamic>{
       'nombre': nombre,
-      'telefono': telefonoDigits, // <- usa el número normalizado
+      'telefono': telefonoDigits,
       'relacion': relacion.isEmpty ? 'N/A' : relacion,
     };
 
-    final url = widget.contacto == null
-        ? Uri.parse('http://157.137.187.110:8000/contactos')
-        : Uri.parse('http://157.137.187.110:8000/contactos/${widget.contacto!['contacto_id']}');
-
-    final method = widget.contacto == null ? 'POST' : 'PUT';
+    final creando = widget.contacto == null;
+    final url = creando
+        ? Uri.parse('$_baseUrl/contactos')
+        : Uri.parse('$_baseUrl/contactos/${(widget.contacto!['contacto_id'] as num).toInt()}');
 
     try {
-      final response = await (method == 'POST'
+      final resp = await (creando
           ? http.post(
               url,
               headers: {
@@ -350,23 +353,22 @@ class _AddContactSheetState extends State<_AddContactSheet> {
               body: jsonEncode(body),
             ));
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      if (!mounted) return;
+
+      if (resp.statusCode == 200 || resp.statusCode == 201) {
         Navigator.of(context).pop();
         widget.onSave();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error (${response.statusCode}): ${response.body}')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error (${resp.statusCode}): ${resp.body}')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
-      setState(() => _isSaving = false);
+      if (mounted) setState(() => _guardando = false);
     }
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -374,64 +376,44 @@ class _AddContactSheetState extends State<_AddContactSheet> {
       padding: const EdgeInsets.all(24.0),
       decoration: const BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
-        ),
+        borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                widget.contacto == null
-                    ? 'Agregar Contacto'
-                    : 'Editar Contacto',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.grey),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
+              Text(widget.contacto == null ? 'Agregar Contacto' : 'Editar Contacto',
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+              IconButton(icon: const Icon(Icons.close, color: Colors.grey), onPressed: () => Navigator.of(context).pop()),
             ],
           ),
           const SizedBox(height: 20),
-          _buildTextField('Nombre *', nombreController),
+          _construirCampoTexto('Nombre *', nombreController),
           const SizedBox(height: 16),
-          _buildTextField(
+          _construirCampoTexto(
             'Teléfono *',
             telefonoController,
             keyboardType: TextInputType.phone,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           ),
           const SizedBox(height: 16),
-          _buildTextField('Relación (opcional)', relacionController),
+          _construirCampoTexto('Relación (opcional)', relacionController),
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
             height: 50,
             child: ElevatedButton(
-              onPressed: _isSaving ? null : _guardarContacto,
+              onPressed: _guardando ? null : _guardarContacto,
               style: ElevatedButton.styleFrom(
                 backgroundColor: primaryColor,
                 foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: _isSaving
+              child: _guardando
                   ? const CircularProgressIndicator(color: Colors.black)
-                  : const Text(
-                      'Guardar',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
+                  : const Text('Guardar', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ),
         ],
@@ -439,19 +421,19 @@ class _AddContactSheetState extends State<_AddContactSheet> {
     );
   }
 
-  Widget _buildTextField(
-    String label,
-    TextEditingController controller, {
+  Widget _construirCampoTexto(
+    String etiqueta,
+    TextEditingController controlador, {
     TextInputType? keyboardType,
     List<TextInputFormatter>? inputFormatters,
   }) {
     return TextField(
-      controller: controller,
+      controller: controlador,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
       style: const TextStyle(color: Colors.white),
       decoration: InputDecoration(
-        labelText: label,
+        labelText: etiqueta,
         labelStyle: const TextStyle(color: Colors.grey),
         filled: true,
         fillColor: Colors.grey[850],

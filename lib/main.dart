@@ -12,30 +12,28 @@ import 'screens/vista_espacios.dart';
 import 'screens/vista_calendario.dart';
 
 // Colores principales de la aplicación
-const Color primaryColor = Color(0xFFFFC700);  // Amarillo/Dorado
-const Color accentColor = Color(0xFFFE526E);   // Rojo/Rosa SOS
-const Color backgroundColor = Color(0xFF121212); // Fondo oscuro
-const Color cardColor = Color(0xFF1E1E1E);     // Color de tarjetas
+const Color primaryColor = Color(0xFFFFC700);     // Amarillo/Dorado
+const Color accentColor = Color(0xFFFE526E);      // Rojo/Rosa SOS
+const Color backgroundColor = Color(0xFF121212);  // Fondo oscuro
+const Color cardColor = Color(0xFF1E1E1E);        // Color de tarjetas
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Inicializa el servicio (plugin, canal, etc.)
-  await NotificationService.instance.init();
+  // Inicializa notificaciones y solicita permisos
+  await ServicioNotificaciones.instancia.inicializar();
+  await ServicioNotificaciones.instancia.solicitarPermisoNotificaciones();
 
-  // Android 13+ / iOS: solicita permiso de notificaciones
-  await NotificationService.instance.requestNotificationsPermission();
-
-  runApp(const RunnerApp());
+  runApp(const AppChita());
 }
 
-class RunnerApp extends StatelessWidget {
-  const RunnerApp({super.key});
+class AppChita extends StatelessWidget {
+  const AppChita({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Runner Safety App',
+      title: 'CHITA – Seguridad para corredores',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
@@ -62,71 +60,70 @@ class RunnerApp extends StatelessWidget {
           bodyMedium: TextStyle(color: Colors.grey),
         ),
       ),
-      home: const _AuthGate(),
+      home: const _PuertaAutenticacion(),
     );
   }
 }
 
-class _AuthGate extends StatefulWidget {
-  const _AuthGate({super.key});
+class _PuertaAutenticacion extends StatefulWidget {
+  const _PuertaAutenticacion({super.key});
   @override
-  State<_AuthGate> createState() => _AuthGateState();
+  State<_PuertaAutenticacion> createState() => _EstadoPuertaAutenticacion();
 }
 
-class _AuthGateState extends State<_AuthGate> {
-  Future<bool> _isLoggedIn() async {
-    final id = await SessionRepository.corredorId();
-    final pwd = await SessionRepository.contrasenia();
+class _EstadoPuertaAutenticacion extends State<_PuertaAutenticacion> {
+  Future<bool> _estaAutenticado() async {
+    final id = await RepositorioSesion.obtenerCorredorId();
+    final pwd = await RepositorioSesion.obtenerContrasenia();
     return id != null && (pwd != null && pwd.isNotEmpty);
   }
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<bool>(
-      future: _isLoggedIn(),
+      future: _estaAutenticado(),
       builder: (context, snap) {
         if (!snap.hasData) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        return snap.data! ? const MainScreen() : const AuthScreen();
+        return snap.data! ? const PantallaPrincipal() : const AuthScreen();
       },
     );
   }
 }
 
-class MainScreen extends StatefulWidget {
-  const MainScreen({super.key});
+class PantallaPrincipal extends StatefulWidget {
+  const PantallaPrincipal({super.key});
 
   @override
-  State<MainScreen> createState() => _MainScreenState();
+  State<PantallaPrincipal> createState() => _EstadoPantallaPrincipal();
 }
 
-class _MainScreenState extends State<MainScreen> {
-  int _selectedIndex = 0;
+class _EstadoPantallaPrincipal extends State<PantallaPrincipal> {
+  int _indiceSeleccionado = 0;
 
-  static final List<Widget> _widgetOptions = <Widget>[
+  static final List<Widget> _opcionesWidgets = <Widget>[
     const VistaAlerta(),
     const VistaEspacios(),
     const VistaContactos(),
     const VistaCalendario(),
-    const ProfileScreen(),
+    const ProfileScreen(), // ← cuando renombremos profile.dart, cambiamos aquí también
   ];
 
-  void _onItemTapped(int index) {
+  void _alTocarItem(int indice) {
     // 🔒 Deshabilitar temporalmente la pestaña de Perfil (índice 4)
-    if (index == 4) {
-      // No hacer nada. Para re-habilitar, borra este if.
+    if (indice == 4) {
       return;
     }
-    setState(() => _selectedIndex = index);
+    setState(() => _indiceSeleccionado = indice);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(child: _widgetOptions.elementAt(_selectedIndex)),
+      body: Center(child: _opcionesWidgets.elementAt(_indiceSeleccionado)),
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
@@ -135,8 +132,8 @@ class _MainScreenState extends State<MainScreen> {
           BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Calendario'),
           BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
         ],
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
+        currentIndex: _indiceSeleccionado,
+        onTap: _alTocarItem,
       ),
     );
   }

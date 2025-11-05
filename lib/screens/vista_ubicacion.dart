@@ -7,34 +7,33 @@ import '../core/session_repository.dart';
 import '../device/location_service.dart';
 import '../device/sms_service.dart';
 
-/// View-model para pintar contactos en esta vista (¡este es el ContactVm!)
-class ContactVm {
+/// View-model para pintar contactos en esta vista
+class ContactoVm {
   final int contactoId;
   final String nombre;
   final String telefono;
   final String initials;
 
-  ContactVm({
+  ContactoVm({
     required this.contactoId,
     required this.nombre,
     required this.telefono,
     required this.initials,
   });
 
-  factory ContactVm.fromApi(Map<String, dynamic> j) {
+  factory ContactoVm.desdeApi(Map<String, dynamic> j) {
     final nombre = (j['nombre'] as String?)?.trim() ?? 'Contacto';
     final tel = (j['telefono'] as String?)?.trim() ?? '';
     final id = (j['contacto_id'] as num).toInt();
-    return ContactVm(
+    return ContactoVm(
       contactoId: id,
       nombre: nombre,
       telefono: tel,
-      initials: _buildInitials(nombre),
+      initials: _construirIniciales(nombre),
     );
   }
 
-  static String _buildInitials(String full) {
-    // Sin package:characters, para evitar imports extra
+  static String _construirIniciales(String full) {
     final parts =
         full.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
     String first(String s) => s.isEmpty ? '' : s[0].toUpperCase();
@@ -48,75 +47,75 @@ class VistaUbicacion extends StatefulWidget {
   const VistaUbicacion({super.key});
 
   @override
-  State<VistaUbicacion> createState() => _VistaUbicacionState();
+  State<VistaUbicacion> createState() => _EstadoVistaUbicacion();
 }
 
-class _VistaUbicacionState extends State<VistaUbicacion> {
-  List<ContactVm> _contacts = [];
-  final Set<int> _selectedIds = {};
-  bool _loading = true;
+class _EstadoVistaUbicacion extends State<VistaUbicacion> {
+  List<ContactoVm> _contactos = [];
+  final Set<int> _idsSeleccionados = {};
+  bool _cargando = true;
   String? _error;
 
-  Timer? _sessionTimer;
-  DateTime? _sessionEndAt;
-  Duration _sessionFrequency = const Duration(minutes: 10);
-  bool _sending = false;
+  Timer? _temporizadorSesion;
+  DateTime? _finSesion;
+  Duration _frecuenciaSesion = const Duration(minutes: 10);
+  bool _enviando = false;
 
   @override
   void initState() {
     super.initState();
-    _loadContacts();
+    _cargarContactos();
   }
 
   @override
   void dispose() {
-    _cancelSession();
+    _cancelarSesion();
     super.dispose();
   }
 
-  Future<void> _loadContacts() async {
+  Future<void> _cargarContactos() async {
     setState(() {
-      _loading = true;
+      _cargando = true;
       _error = null;
     });
     try {
-      final list = await ApiService.getContactos(); // [{contacto_id, nombre, telefono, ...}]
+      final list = await ServicioApi.obtenerContactos(); // [{contacto_id, nombre, telefono, ...}]
       final mapped = list
-          .map(ContactVm.fromApi)
+          .map(ContactoVm.desdeApi)
           .where((c) => c.telefono.isNotEmpty)
           .toList();
       setState(() {
-        _contacts = mapped;
-        _loading = false;
+        _contactos = mapped;
+        _cargando = false;
       });
     } catch (e) {
       setState(() {
         _error = 'No se pudieron cargar tus contactos. $e';
-        _loading = false;
+        _cargando = false;
       });
     }
   }
 
-  void _onContactTap(ContactVm contact) {
+  void _alTocarContacto(ContactoVm contact) {
     setState(() {
-      if (_selectedIds.contains(contact.contactoId)) {
-        _selectedIds.remove(contact.contactoId);
+      if (_idsSeleccionados.contains(contact.contactoId)) {
+        _idsSeleccionados.remove(contact.contactoId);
       } else {
-        _selectedIds.add(contact.contactoId);
+        _idsSeleccionados.add(contact.contactoId);
       }
     });
   }
 
-  void _openConfirmationDialog() {
+  void _abrirDialogoConfirmacion() {
     final seleccion =
-        _contacts.where((c) => _selectedIds.contains(c.contactoId)).toList();
+        _contactos.where((c) => _idsSeleccionados.contains(c.contactoId)).toList();
     showDialog(
       context: context,
-      builder: (context) => _ConfirmationDialog(
+      builder: (context) => _DialogoConfirmacion(
         selectedContacts: seleccion,
         onConfirm: (frequency, totalDuration) async {
           Navigator.of(context).pop(); // cierra diálogo de confirmación
-          await _startShareSession(
+          await _iniciarSesionCompartir(
             frequency: frequency,
             total: totalDuration,
             selected: seleccion,
@@ -126,58 +125,57 @@ class _VistaUbicacionState extends State<VistaUbicacion> {
     );
   }
 
-  Future<void> _startShareSession({
+  Future<void> _iniciarSesionCompartir({
     required Duration frequency,
     required Duration total,
-    required List<ContactVm> selected,
+    required List<ContactoVm> selected,
   }) async {
     // 1) Permisos SMS/Teléfono
     try {
-      await SmsService.ensureSmsAndPhonePermissions();
+      await ServicioSMS.asegurarPermisosSmsYTelefono();
     } catch (e) {
-      _snack('No se obtuvieron permisos para SMS/Teléfono.');
+      _mensaje('No se obtuvieron permisos para SMS/Teléfono.');
       return;
     }
 
     // 2) Preparar sesión (envío inmediato + periódicos)
-    _cancelSession();
+    _cancelarSesion();
     final endAt = DateTime.now().add(total);
     setState(() {
-      _sessionEndAt = endAt;
-      _sessionFrequency = frequency;
+      _finSesion = endAt;
+      _frecuenciaSesion = frequency;
     });
 
     // Envío inmediato (tick 0)
-    await _sendLocationTo(selected);
+    await _enviarUbicacionA(selected);
 
     // Envío periódico
-    _sessionTimer = Timer.periodic(frequency, (t) async {
+    _temporizadorSesion = Timer.periodic(frequency, (t) async {
       if (DateTime.now().isAfter(endAt)) {
-        _cancelSession();
-        _showSuccessDialog(selected);
+        _cancelarSesion();
+        _mostrarDialogoExito(selected);
         return;
       }
-      await _sendLocationTo(selected);
+      await _enviarUbicacionA(selected);
     });
 
-    _snack(
-        'Sesión iniciada: cada ${_fmtDuration(frequency)} durante ${_fmtDuration(total)}.');
+    _mensaje('Sesión iniciada: cada ${_formatearDuracion(frequency)} durante ${_formatearDuracion(total)}.');
   }
 
-  void _cancelSession() {
-    _sessionTimer?.cancel();
-    _sessionTimer = null;
-    _sessionEndAt = null;
+  void _cancelarSesion() {
+    _temporizadorSesion?.cancel();
+    _temporizadorSesion = null;
+    _finSesion = null;
   }
 
-  Future<void> _sendLocationTo(List<ContactVm> selected) async {
-    if (_sending) return;
-    _sending = true;
+  Future<void> _enviarUbicacionA(List<ContactoVm> selected) async {
+    if (_enviando) return;
+    _enviando = true;
     try {
       // 3) Ubicación (best-effort)
       double? lat, lng;
       try {
-        final pos = await LocationService.getCurrentPosition();
+        final pos = await ServicioUbicacion.obtenerPosicionActual();
         lat = pos.latitude;
         lng = pos.longitude;
       } catch (_) {
@@ -185,9 +183,9 @@ class _VistaUbicacionState extends State<VistaUbicacion> {
         lng = null;
       }
 
-      final corredor = await SessionRepository.nombre() ?? 'Corredor';
+      final corredor = await RepositorioSesion.nombre() ?? 'Corredor';
       final urlMapa = (lat != null && lng != null)
-          ? LocationService.mapsUrlFrom(lat, lng)
+          ? ServicioUbicacion.urlMapsDesde(lat, lng)
           : 'no disponible';
 
       final mensaje = '''
@@ -207,7 +205,7 @@ $urlMapa
           continue;
         }
         try {
-          await SmsService.sendFlexibleMx(rawPhone: tel, message: mensaje);
+          await ServicioSMS.enviarFlexibleMx(rawPhone: tel, message: mensaje);
           ok++;
         } catch (_) {
           fail++;
@@ -215,22 +213,22 @@ $urlMapa
       }
 
       if (mounted) {
-        _snack('Ubicación enviada: $ok OK, $fail fallidos.');
+        _mensaje('Ubicación enviada: $ok OK, $fail fallidos.');
       }
     } finally {
-      _sending = false;
+      _enviando = false;
     }
   }
 
-  void _snack(String msg) {
+  void _mensaje(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  void _showSuccessDialog(List<ContactVm> selected) {
+  void _mostrarDialogoExito(List<ContactoVm> selected) {
     showDialog(
       context: context,
-      builder: (context) => _SuccessDialog(
+      builder: (context) => _DialogoExito(
         selectedContacts: selected,
         onDone: () {
           Navigator.of(context).pop(); // cierra diálogo
@@ -240,14 +238,14 @@ $urlMapa
     );
   }
 
-  String _fmtDuration(Duration d) {
+  String _formatearDuracion(Duration d) {
     if (d.inMinutes % 60 == 0) return '${d.inHours} h';
     return '${d.inMinutes} min';
   }
 
   @override
   Widget build(BuildContext context) {
-    final canContinue = _selectedIds.isNotEmpty && !_loading && _error == null;
+    final puedeContinuar = _idsSeleccionados.isNotEmpty && !_cargando && _error == null;
 
     return Scaffold(
       appBar: AppBar(
@@ -270,11 +268,11 @@ $urlMapa
                 const SizedBox(height: 4),
                 const Text('Elige con quién compartir tu ubicación',
                     style: TextStyle(color: Colors.grey)),
-                if (_sessionEndAt != null) ...[
+                if (_finSesion != null) ...[
                   const SizedBox(height: 8),
                   Text(
-                    'Sesión activa: cada ${_fmtDuration(_sessionFrequency)} hasta '
-                    '${_sessionEndAt!.toLocal()}',
+                    'Sesión activa: cada ${_formatearDuracion(_frecuenciaSesion)} hasta '
+                    '${_finSesion!.toLocal()}',
                     style: const TextStyle(color: Colors.greenAccent),
                   ),
                 ],
@@ -284,7 +282,7 @@ $urlMapa
 
           // Lista / estados
           Expanded(
-            child: _loading
+            child: _cargando
                 ? const Center(child: CircularProgressIndicator())
                 : (_error != null)
                     ? Center(
@@ -297,15 +295,15 @@ $urlMapa
                         ),
                       )
                     : ListView.builder(
-                        itemCount: _contacts.length,
+                        itemCount: _contactos.length,
                         itemBuilder: (context, index) {
-                          final c = _contacts[index];
-                          final isSelected =
-                              _selectedIds.contains(c.contactoId);
-                          return _ContactTile(
+                          final c = _contactos[index];
+                          final seleccionado =
+                              _idsSeleccionados.contains(c.contactoId);
+                          return _ElementoContacto(
                             contact: c,
-                            isSelected: isSelected,
-                            onTap: () => _onContactTap(c),
+                            isSelected: seleccionado,
+                            onTap: () => _alTocarContacto(c),
                           );
                         },
                       ),
@@ -317,17 +315,17 @@ $urlMapa
             child: SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: canContinue ? _openConfirmationDialog : null,
+                onPressed: puedeContinuar ? _abrirDialogoConfirmacion : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: primaryColor,
                   disabledBackgroundColor: Colors.grey[800],
                 ),
                 child: Text(
-                  canContinue
-                      ? 'Continuar (${_selectedIds.length})'
+                  puedeContinuar
+                      ? 'Continuar (${_idsSeleccionados.length})'
                       : 'Continuar',
                   style: TextStyle(
-                    color: canContinue ? Colors.black : Colors.grey[600],
+                    color: puedeContinuar ? Colors.black : Colors.grey[600],
                   ),
                 ),
               ),
@@ -343,12 +341,12 @@ $urlMapa
 // Widgets auxiliares
 // ==========================
 
-class _ContactTile extends StatelessWidget {
-  final ContactVm contact;
+class _ElementoContacto extends StatelessWidget {
+  final ContactoVm contact;
   final bool isSelected;
   final VoidCallback onTap;
 
-  const _ContactTile({
+  const _ElementoContacto({
     required this.contact,
     required this.isSelected,
     required this.onTap,
@@ -388,20 +386,20 @@ class _ContactTile extends StatelessWidget {
   }
 }
 
-class _ConfirmationDialog extends StatefulWidget {
-  final List<ContactVm> selectedContacts;
+class _DialogoConfirmacion extends StatefulWidget {
+  final List<ContactoVm> selectedContacts;
   final void Function(Duration frequency, Duration totalDuration) onConfirm;
 
-  const _ConfirmationDialog({
+  const _DialogoConfirmacion({
     required this.selectedContacts,
     required this.onConfirm,
   });
 
   @override
-  State<_ConfirmationDialog> createState() => _ConfirmationDialogState();
+  State<_DialogoConfirmacion> createState() => _EstadoDialogoConfirmacion();
 }
 
-class _ConfirmationDialogState extends State<_ConfirmationDialog> {
+class _EstadoDialogoConfirmacion extends State<_DialogoConfirmacion> {
   String _selectedFrequency = '10 min';
   String _selectedDuration = '1h';
 
@@ -437,56 +435,66 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
       backgroundColor: cardColor,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       title: const Text('Confirmar compartir', textAlign: TextAlign.center),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('¿Quieres compartir tu ubicación con los contactos seleccionados?'),
-          const SizedBox(height: 20),
-          const Text('Frecuencia de actualización',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: ['10 min', '30 min', '1 hora'].map((freq) {
-              final isSelected = _selectedFrequency == freq;
-              return ChoiceChip(
-                label: Text(freq),
-                selected: isSelected,
-                onSelected: (selected) {
-                  if (selected) setState(() => _selectedFrequency = freq);
-                },
-                backgroundColor: Colors.grey[800],
-                selectedColor: primaryColor,
-                labelStyle: TextStyle(
-                  color: isSelected ? Colors.black : Colors.white,
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 20),
-          const Text('Duración de la sesión',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: ['1h', '2h', '3h', '4h', '5h'].map((duration) {
-              final isSelected = _selectedDuration == duration;
-              return ChoiceChip(
-                label: Text(duration),
-                selected: isSelected,
-                onSelected: (selected) {
-                  if (selected) setState(() => _selectedDuration = duration);
-                },
-                backgroundColor: Colors.grey[800],
-                selectedColor: primaryColor,
-                labelStyle: TextStyle(
-                  color: isSelected ? Colors.black : Colors.white,
-                ),
-              );
-            }).toList(),
-          ),
-        ],
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '¿Quieres compartir tu ubicación con los contactos seleccionados?',
+            ),
+            const SizedBox(height: 20),
+
+            const Text('Frecuencia de actualización',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: ['10 min', '30 min', '1 hora'].map((freq) {
+                final isSelected = _selectedFrequency == freq;
+                return ChoiceChip(
+                  label: Text(freq),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) setState(() => _selectedFrequency = freq);
+                  },
+                  backgroundColor: Colors.grey[800],
+                  selectedColor: primaryColor,
+                  labelStyle: TextStyle(
+                    color: isSelected ? Colors.black : Colors.white,
+                  ),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                );
+              }).toList(),
+            ),
+
+            const SizedBox(height: 20),
+            const Text('Duración de la sesión',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: ['1h', '2h', '3h', '4h', '5h'].map((duration) {
+                final isSelected = _selectedDuration == duration;
+                return ChoiceChip(
+                  label: Text(duration),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) setState(() => _selectedDuration = duration);
+                  },
+                  backgroundColor: Colors.grey[800],
+                  selectedColor: primaryColor,
+                  labelStyle: TextStyle(
+                    color: isSelected ? Colors.black : Colors.white,
+                  ),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                );
+              }).toList(),
+            ),
+          ],
+        ),
       ),
       actions: [
         Row(
@@ -505,8 +513,7 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
             const SizedBox(width: 10),
             Expanded(
               child: ElevatedButton(
-                onPressed: () =>
-                    widget.onConfirm(_freqDuration, _totalDuration),
+                onPressed: () => widget.onConfirm(_freqDuration, _totalDuration),
                 child: const Text('Compartir'),
               ),
             ),
@@ -517,11 +524,11 @@ class _ConfirmationDialogState extends State<_ConfirmationDialog> {
   }
 }
 
-class _SuccessDialog extends StatelessWidget {
-  final List<ContactVm> selectedContacts;
+class _DialogoExito extends StatelessWidget {
+  final List<ContactoVm> selectedContacts;
   final VoidCallback onDone;
 
-  const _SuccessDialog({required this.selectedContacts, required this.onDone});
+  const _DialogoExito({required this.selectedContacts, required this.onDone});
 
   @override
   Widget build(BuildContext context) {

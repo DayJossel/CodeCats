@@ -1,83 +1,78 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:geolocator/geolocator.dart'; // ⬅️ nuevo
+import 'package:geolocator/geolocator.dart';
 import '../main.dart';
 
-class MapDetailScreen extends StatefulWidget {
-  final String routeTitle;
-  final String routeCoordinates;
-  final String mapImagePath;
+class PantallaDetalleMapa extends StatefulWidget {
+  final String tituloRuta;
+  final String coordenadasRuta;
+  final String imagenMapa;
 
-  const MapDetailScreen({
+  const PantallaDetalleMapa({
     super.key,
-    required this.routeTitle,
-    required this.routeCoordinates,
-    required this.mapImagePath,
+    required this.tituloRuta,
+    required this.coordenadasRuta,
+    required this.imagenMapa,
   });
 
   @override
-  State<MapDetailScreen> createState() => _MapDetailScreenState();
+  State<PantallaDetalleMapa> createState() => _EstadoPantallaDetalleMapa();
 }
 
-class _MapDetailScreenState extends State<MapDetailScreen> {
-  late LatLng _position;
-  GoogleMapController? _mapController;
+// 👇 Compat: si en otro lado siguen usando MapDetailScreen, no se rompe
+class MapDetailScreen extends PantallaDetalleMapa {
+  const MapDetailScreen({
+    super.key,
+    required String routeTitle,
+    required String routeCoordinates,
+    required String mapImagePath,
+  }) : super(
+          tituloRuta: routeTitle,
+          coordenadasRuta: routeCoordinates,
+          imagenMapa: mapImagePath,
+        );
+}
 
-  bool _hasLocationPermission = false; // ⬅️ control de permiso
+class _EstadoPantallaDetalleMapa extends State<PantallaDetalleMapa> {
+  late LatLng _posicion;
+  GoogleMapController? _controladorMapa;
+  bool _tienePermisoUbicacion = false;
 
   @override
   void initState() {
     super.initState();
-    _parseCoordinates();
-    _ensureLocationPermission(); // ⬅️ pedimos permiso al entrar
+    _parsearCoordenadas();
+    _asegurarPermisoUbicacion();
   }
 
-  void _parseCoordinates() {
+  void _parsearCoordenadas() {
     try {
-      final coords = widget.routeCoordinates
-          .replaceAll('Coordenadas:', '')
-          .trim()
-          .split(',');
+      final coords = widget.coordenadasRuta.replaceAll('Coordenadas:', '').trim().split(',');
       final lat = double.parse(coords[0].trim());
       final lng = double.parse(coords[1].trim());
-      _position = LatLng(lat, lng);
-    } catch (e) {
-      _position = const LatLng(22.7709, -102.5832); // fallback
+      _posicion = LatLng(lat, lng);
+    } catch (_) {
+      _posicion = const LatLng(22.7709, -102.5832); // fallback Zacatecas
     }
   }
 
-  Future<void> _ensureLocationPermission() async {
-    // Verificamos estado del servicio (no lo forzamos a encender)
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      // si quieres, puedes avisar con un SnackBar aquí
-    }
-
+  Future<void> _asegurarPermisoUbicacion() async {
+    await Geolocator.isLocationServiceEnabled(); // no forzamos
     var perm = await Geolocator.checkPermission();
     if (perm == LocationPermission.denied) {
       perm = await Geolocator.requestPermission();
     }
-
-    // Si está deniedForever, no intentamos más
-    final granted = (perm == LocationPermission.always ||
-        perm == LocationPermission.whileInUse);
-
-    if (mounted) {
-      setState(() => _hasLocationPermission = granted);
-    }
+    final ok = (perm == LocationPermission.always || perm == LocationPermission.whileInUse);
+    if (mounted) setState(() => _tienePermisoUbicacion = ok);
   }
 
   @override
   Widget build(BuildContext context) {
-    final CameraPosition initialCamera = CameraPosition(
-      target: _position,
-      zoom: 15,
-    );
-
-    final marker = Marker(
+    final camaraInicial = CameraPosition(target: _posicion, zoom: 15);
+    final marcador = Marker(
       markerId: const MarkerId('espacio'),
-      position: _position,
-      infoWindow: InfoWindow(title: widget.routeTitle),
+      position: _posicion,
+      infoWindow: InfoWindow(title: widget.tituloRuta),
     );
 
     return Scaffold(
@@ -90,29 +85,23 @@ class _MapDetailScreenState extends State<MapDetailScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(
-          widget.routeTitle,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
+          widget.tituloRuta,
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
       body: Stack(
         children: [
           GoogleMap(
-            initialCameraPosition: initialCamera,
-            markers: {marker},
-            onMapCreated: (controller) => _mapController = controller,
-            // ⬇️ Solo habilitamos capa/botón si hay permiso
-            myLocationEnabled: _hasLocationPermission,
-            myLocationButtonEnabled: _hasLocationPermission,
+            initialCameraPosition: camaraInicial,
+            markers: {marcador},
+            onMapCreated: (c) => _controladorMapa = c,
+            myLocationEnabled: _tienePermisoUbicacion,
+            myLocationButtonEnabled: _tienePermisoUbicacion,
             zoomControlsEnabled: false,
             compassEnabled: true,
           ),
           Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
+            bottom: 0, left: 0, right: 0,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               decoration: BoxDecoration(
@@ -123,19 +112,10 @@ class _MapDetailScreenState extends State<MapDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    widget.routeTitle,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  Text(widget.tituloRuta,
+                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
-                  Text(
-                    widget.routeCoordinates,
-                    style: const TextStyle(color: Colors.grey, fontSize: 14),
-                  ),
+                  Text(widget.coordenadasRuta, style: const TextStyle(color: Colors.grey, fontSize: 14)),
                 ],
               ),
             ),
