@@ -1,115 +1,22 @@
 // lib/screens/vista_calendario.dart
-import 'dart:convert';
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'vista_estadistica.dart';
 
 import '../main.dart';
-import '../backend/core/notification_service.dart'; // Usaremos ServicioNotificaciones (alias)
+import 'vista_estadistica.dart';
 
-const String _baseUrl = 'http://157.137.187.110:8000';
+import '../backend/dominio/modelos/carrera.dart';
+import '../backend/dominio/calendario.dart';
+import '../backend/core/session_repository.dart';
 
 String _fmt(DateTime dt) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '${dt.year}-${two(dt.month)}-${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}:${two(dt.second)}';
 }
 
-// =============================
-// Modelo / utilidades de estado
-// =============================
-enum EstadoCarrera { pendiente, hecha, noRealizada }
-
-String _estadoAApi(EstadoCarrera s) {
-  switch (s) {
-    case EstadoCarrera.hecha:
-      return 'hecha';
-    case EstadoCarrera.noRealizada:
-      return 'no_realizada';
-    case EstadoCarrera.pendiente:
-    default:
-      return 'pendiente';
-  }
-}
-
-EstadoCarrera _estadoDesdeApi(String s) {
-  switch (s) {
-    case 'hecha':
-      return EstadoCarrera.hecha;
-    case 'no_realizada':
-      return EstadoCarrera.noRealizada;
-    case 'pendiente':
-    default:
-      return EstadoCarrera.pendiente;
-  }
-}
-
-class Carrera {
-  int id;                // id>0 servidor, id<0 local/offline
-  String titulo;
-  DateTime fechaHora;    // hora local (UI)
-  EstadoCarrera estado;
-  int tzOffsetMin;
-
-  Carrera({
-    required this.id,
-    required this.titulo,
-    required this.fechaHora,
-    this.estado = EstadoCarrera.pendiente,
-    this.tzOffsetMin = 0,
-  });
-
-  Map<String, dynamic> toJson() => {
-        'id': id,
-        'titulo': titulo,
-        'fechaHora': fechaHora.toIso8601String(),
-        'estado': estado.index,
-        'tzOffsetMin': tzOffsetMin,
-      };
-
-  static Carrera fromJson(Map<String, dynamic> m) => Carrera(
-        id: m['id'] as int,
-        titulo: m['titulo'] as String,
-        fechaHora: DateTime.parse(m['fechaHora'] as String),
-        estado: EstadoCarrera.values[(m['estado'] as int?) ?? 0],
-        tzOffsetMin: (m['tzOffsetMin'] as int?) ?? 0,
-      );
-
-  static Carrera fromApi(Map<String, dynamic> m) {
-    final utc = DateTime.parse(m['fecha_hora_utc'] as String).toUtc();
-    return Carrera(
-      id: m['carrera_id'] as int,
-      titulo: m['titulo'] as String,
-      fechaHora: utc.toLocal(),
-      estado: _estadoDesdeApi(m['estado'] as String),
-      tzOffsetMin: (m['tz_offset_min'] as int?) ?? 0,
-    );
-  }
-
-  Map<String, dynamic> toApiCreateOrUpdate() => {
-        'titulo': titulo,
-        'fecha_hora_utc': fechaHora.toUtc().toIso8601String(),
-        'tz_offset_min': DateTime.now().timeZoneOffset.inMinutes,
-        'estado': _estadoAApi(estado),
-      };
-
-  Carrera clonar() => Carrera(
-        id: id,
-        titulo: titulo,
-        fechaHora: fechaHora,
-        estado: estado,
-        tzOffsetMin: tzOffsetMin,
-      );
-}
-
-// =============================
-// Vista principal
-// =============================
 class VistaCalendario extends StatefulWidget {
   const VistaCalendario({super.key});
 
@@ -118,13 +25,13 @@ class VistaCalendario extends StatefulWidget {
 }
 
 class EstadoVistaCalendario extends State<VistaCalendario> {
+  final _uc = CalendarioUC();
+
   final List<Carrera> _carreras = [];
   late DateTime _diaEnfocado;
   late DateTime _diaSeleccionado;
   late CalendarFormat _formatoCalendario;
   Map<DateTime, List<Carrera>> _eventos = {};
-
-  static const _claveStorage = 'races_storage_v1';
 
   bool _cargando = false;
   int? corredorId;
@@ -137,147 +44,58 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
     _diaEnfocado = DateTime.now();
     _diaSeleccionado = _diaEnfocado;
     _formatoCalendario = CalendarFormat.month;
-    _cargarDesdeDisco();     // pinta caché
-    _cargarUsuario();        // luego servidor + sync
+    _bootstrap();
   }
 
-  // =============================
-  // Usuario / Auth
-  // =============================
-  Future<void> _cargarUsuario() async {
-    final prefs = await SharedPreferences.getInstance();
-    corredorId = prefs.getInt('corredor_id');
-    contrasenia = prefs.getString('contrasenia');
+  Future<void> _bootstrap() async {
+    // 1) Cargar caché local
+    final local = await _uc.cargarDesdeDisco();
+    _carreras
+      ..clear()
+      ..addAll(local);
+    _eventos = _uc.agruparEventos(_carreras);
+    if (mounted) setState(() {});
 
-    setState(() => _usuarioCargado = true);
+    // 2) Cargar credenciales (FIX de nombres)
+    corredorId = await RepositorioSesion.obtenerCorredorId();
+    contrasenia = await RepositorioSesion.obtenerContrasenia();
+    _usuarioCargado = true;
+    if (mounted) setState(() {});
 
+    // 3) Si hay sesión, sincronizar servidor + borradores
     if (corredorId != null && contrasenia != null) {
-      await _listarCarrerasServidor();
+      await _listarServidor();
       await _sincronizarBorradores();
     }
   }
 
-  Map<String, String> _encabezadosAuth() => {
-        'X-Corredor-Id': '${corredorId ?? ''}',
-        'X-Contrasenia': contrasenia ?? '',
-      };
-
-  bool _debeTenerRecordatorio(Carrera c) =>
-      c.estado == EstadoCarrera.pendiente && c.fechaHora.isAfter(DateTime.now());
-
-  // =============================
-  // Persistencia local
-  // =============================
-  Future<void> _cargarDesdeDisco() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_claveStorage);
-    _carreras.clear();
-    if (raw != null && raw.isNotEmpty) {
-      try {
-        final List list = jsonDecode(raw) as List;
-        _carreras.addAll(list.map((e) => Carrera.fromJson(e as Map<String, dynamic>)));
-      } catch (_) {/* datos corruptos: ignora */}
-    }
-    _carreras.sort((a, b) => a.fechaHora.compareTo(b.fechaHora));
-    _agruparEventos();
-    await _reprogramarRecordatoriosSilencioso();
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _guardarEnDisco() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = jsonEncode(_carreras.map((e) => e.toJson()).toList());
-    await prefs.setString(_claveStorage, raw);
-  }
-
-  void _agruparEventos() {
-    _eventos = {};
-    for (var c in _carreras) {
-      final d = DateTime(c.fechaHora.year, c.fechaHora.month, c.fechaHora.day);
-      _eventos.putIfAbsent(d, () => []).add(c);
-    }
-  }
-
-  List<Carrera> _eventosDelDia(DateTime day) {
-    final d = DateTime(day.year, day.month, day.day);
-    return _eventos[d] ?? [];
-  }
-
-  Future<void> _reprogramarRecordatoriosSilencioso() async {
-    for (final c in _carreras) {
-      if (_debeTenerRecordatorio(c)) {
-        await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
-          raceId: c.id, title: c.titulo, raceDateTimeLocal: c.fechaHora,
-        );
-      } else {
-        await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(c.id);
-      }
-    }
-  }
-
-  // =============================
-  // API: listar / crear / actualizar / eliminar
-  // =============================
-  Future<void> _listarCarrerasServidor() async {
-    if (corredorId == null || contrasenia == null) return;
+  Future<void> _listarServidor() async {
     setState(() => _cargando = true);
-    try {
-      final response = await http.get(Uri.parse('$_baseUrl/carreras'), headers: _encabezadosAuth());
-      if (response.statusCode == 200) {
-        final List data = jsonDecode(response.body) as List;
-        final servidor = data.map((e) => Carrera.fromApi(e as Map<String, dynamic>)).toList();
-        final locales = _carreras.where((c) => c.id < 0).toList();
-
-        _carreras..clear()..addAll(servidor)..addAll(locales);
-        _carreras.sort((a, b) => a.fechaHora.compareTo(b.fechaHora));
-        _agruparEventos();
-        await _guardarEnDisco();
-        await _reprogramarRecordatoriosSilencioso();
-        setState(() {});
-      } else {
-        _mostrarSnack('Error al obtener carreras (${response.statusCode}): ${response.body}');
-      }
-    } catch (_) {
-      // sin internet: queda caché
-    } finally {
-      setState(() => _cargando = false);
-    }
+    final merged = await _uc.listarCarrerasServidor(
+      corredorId: corredorId,
+      contrasenia: contrasenia,
+      actuales: _carreras,
+    );
+    _carreras
+      ..clear()
+      ..addAll(merged);
+    _eventos = _uc.agruparEventos(_carreras);
+    if (mounted) setState(() => _cargando = false);
   }
 
   Future<void> _sincronizarBorradores() async {
-    final drafts = _carreras.where((c) => c.id < 0).toList();
-    for (final local in drafts) {
-      try {
-        final resp = await http.post(
-          Uri.parse('$_baseUrl/carreras'),
-          headers: {..._encabezadosAuth(), 'Content-Type': 'application/json'},
-          body: jsonEncode(local.toApiCreateOrUpdate()),
-        );
-        if (resp.statusCode == 201) {
-          final creada = Carrera.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
-          final idx = _carreras.indexWhere((c) => c.id == local.id);
-          if (idx != -1) _carreras[idx] = creada;
-
-          await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(local.id);
-          if (_debeTenerRecordatorio(creada)) {
-            await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
-              raceId: creada.id, title: creada.titulo, raceDateTimeLocal: creada.fechaHora,
-            );
-          }
-        }
-      } catch (_) {
-        break; // sin conexión: corto
-      }
-    }
-    _carreras.sort((a, b) => a.fechaHora.compareTo(b.fechaHora));
-    _agruparEventos();
-    await _guardarEnDisco();
+    final upd = await _uc.sincronizarBorradores(
+      corredorId: corredorId,
+      contrasenia: contrasenia,
+      carreras: _carreras,
+    );
+    _carreras
+      ..clear()
+      ..addAll(upd);
+    _eventos = _uc.agruparEventos(_carreras);
     if (mounted) setState(() {});
   }
 
-  // =============================
-  // Acciones UI
-  // =============================
   void _mostrarSnack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -285,276 +103,59 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
 
   Future<void> _guardarCarrera(String titulo, DateTime fechaHora, EstadoCarrera estado,
       {Carrera? existente}) async {
-    final debeSerFutura = (existente == null) || (existente.id < 0);
-    if (debeSerFutura && !fechaHora.isAfter(DateTime.now())) {
-      _mostrarSnack('La carrera debe programarse en una fecha y hora futura.');
-      return;
-    }
-
-    // EDITAR
-    if (existente != null) {
-      final copia = existente.clonar();
-      existente.titulo = titulo;
-      existente.fechaHora = fechaHora;
-      existente.estado = estado;
-      existente.tzOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
-
-      if (existente.id < 0) {
-        try {
-          final resp = await http.post(
-            Uri.parse('$_baseUrl/carreras'),
-            headers: {..._encabezadosAuth(), 'Content-Type': 'application/json'},
-            body: jsonEncode(existente.toApiCreateOrUpdate()),
-          );
-          if (resp.statusCode == 201) {
-            final creada = Carrera.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
-            final idx = _carreras.indexWhere((c) => c.id == existente.id);
-            if (idx != -1) _carreras[idx] = creada;
-            _mostrarSnack('Carrera registrada.');
-
-            await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(copia.id);
-            if (_debeTenerRecordatorio(creada)) {
-              await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
-                raceId: creada.id, title: creada.titulo, raceDateTimeLocal: creada.fechaHora,
-              );
-              _mostrarSnack('Recordatorio: ${_fmt(creada.fechaHora.subtract(const Duration(hours: 2)))}');
-            }
-          } else {
-            final idx = _carreras.indexWhere((c) => c.id == existente.id);
-            if (idx != -1) _carreras[idx] = copia;
-            _mostrarSnack('Error (${resp.statusCode}): ${resp.body}');
-          }
-        } on SocketException catch (_) {
-          _mostrarSnack('Sin conexión. Cambios guardados sólo localmente.');
-        } on TimeoutException catch (_) {
-          _mostrarSnack('Sin conexión (timeout). Cambios locales.');
-        } on http.ClientException catch (_) {
-          _mostrarSnack('Sin conexión. Cambios locales.');
-        }
-      } else {
-        try {
-          final resp = await http.put(
-            Uri.parse('$_baseUrl/carreras/${existente.id}'),
-            headers: {..._encabezadosAuth(), 'Content-Type': 'application/json'},
-            body: jsonEncode(existente.toApiCreateOrUpdate()),
-          );
-          if (resp.statusCode == 200) {
-            _mostrarSnack('Carrera actualizada correctamente');
-            if (_debeTenerRecordatorio(existente)) {
-              await ServicioNotificaciones.instancia.reprogramarRecordatorioCarrera(
-                raceId: existente.id, title: existente.titulo, raceDateTimeLocal: existente.fechaHora,
-              );
-              _mostrarSnack('Recordatorio reprogramado: ${_fmt(existente.fechaHora.subtract(const Duration(hours: 2)))}');
-            } else {
-              await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(existente.id);
-            }
-          } else {
-            existente.titulo = copia.titulo;
-            existente.fechaHora = copia.fechaHora;
-            existente.estado = copia.estado;
-            existente.tzOffsetMin = copia.tzOffsetMin;
-            _mostrarSnack('Error (${resp.statusCode}): ${resp.body}');
-          }
-        } on SocketException catch (_) {
-          _mostrarSnack('Sin conexión. Cambios locales.');
-          await _aplicarPoliticaRecordatorioLocal(existente);
-        } on TimeoutException catch (_) {
-          _mostrarSnack('Sin conexión (timeout). Cambios locales.');
-          await _aplicarPoliticaRecordatorioLocal(existente);
-        } on http.ClientException catch (_) {
-          _mostrarSnack('Sin conexión. Cambios locales.');
-          await _aplicarPoliticaRecordatorioLocal(existente);
-        }
-      }
-    }
-    // NUEVA
-    else {
-      try {
-        final borrador = Carrera(
-          id: 0,
-          titulo: titulo,
-          fechaHora: fechaHora,
-          estado: estado,
-          tzOffsetMin: DateTime.now().timeZoneOffset.inMinutes,
-        );
-        final resp = await http.post(
-          Uri.parse('$_baseUrl/carreras'),
-          headers: {..._encabezadosAuth(), 'Content-Type': 'application/json'},
-          body: jsonEncode(borrador.toApiCreateOrUpdate()),
-        );
-        if (resp.statusCode == 201) {
-          final creada = Carrera.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
-          _carreras.add(creada);
-          _mostrarSnack('Carrera registrada.');
-          if (_debeTenerRecordatorio(creada)) {
-            await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
-              raceId: creada.id, title: creada.titulo, raceDateTimeLocal: creada.fechaHora,
-            );
-            _mostrarSnack('Recordatorio: ${_fmt(creada.fechaHora.subtract(const Duration(hours: 2)))}');
-          }
-        } else {
-          _mostrarSnack('Error (${resp.statusCode}): ${resp.body}');
-        }
-      } on SocketException catch (_) {
-        final local = Carrera(
-          id: -DateTime.now().millisecondsSinceEpoch,
-          titulo: titulo,
-          fechaHora: fechaHora,
-          estado: estado,
-          tzOffsetMin: DateTime.now().timeZoneOffset.inMinutes,
-        );
-        _carreras.add(local);
-        _mostrarSnack('Sin conexión. Carrera guardada localmente.');
-        if (_debeTenerRecordatorio(local)) {
-          await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
-            raceId: local.id, title: local.titulo, raceDateTimeLocal: local.fechaHora,
-          );
-          _mostrarSnack('Recordatorio (offline): ${_fmt(local.fechaHora.subtract(const Duration(hours: 2)))}');
-        }
-      } on TimeoutException catch (_) {
-        final local = Carrera(
-          id: -DateTime.now().millisecondsSinceEpoch,
-          titulo: titulo,
-          fechaHora: fechaHora,
-          estado: estado,
-          tzOffsetMin: DateTime.now().timeZoneOffset.inMinutes,
-        );
-        _carreras.add(local);
-        _mostrarSnack('Sin conexión (timeout). Guardada localmente.');
-        if (_debeTenerRecordatorio(local)) {
-          await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
-            raceId: local.id, title: local.titulo, raceDateTimeLocal: local.fechaHora,
-          );
-          _mostrarSnack('Recordatorio (offline): ${_fmt(local.fechaHora.subtract(const Duration(hours: 2)))}');
-        }
-      } on http.ClientException catch (_) {
-        final local = Carrera(
-          id: -DateTime.now().millisecondsSinceEpoch,
-          titulo: titulo,
-          fechaHora: fechaHora,
-          estado: estado,
-          tzOffsetMin: DateTime.now().timeZoneOffset.inMinutes,
-        );
-        _carreras.add(local);
-        _mostrarSnack('Sin conexión. Guardada localmente.');
-        if (_debeTenerRecordatorio(local)) {
-          await ServicioNotificaciones.instancia.programarRecordatorioCarrera(
-            raceId: local.id, title: local.titulo, raceDateTimeLocal: local.fechaHora,
-          );
-          _mostrarSnack('Recordatorio (offline): ${_fmt(local.fechaHora.subtract(const Duration(hours: 2)))}');
-        }
-      }
-    }
-
+    final upd = await _uc.guardarCarrera(
+      corredorId: corredorId,
+      contrasenia: contrasenia,
+      titulo: titulo,
+      fechaHora: fechaHora,
+      estado: estado,
+      existente: existente,
+      onSnack: _mostrarSnack,
+    );
+    _carreras
+      ..clear()
+      ..addAll(upd);
     _carreras.sort((a, b) => a.fechaHora.compareTo(b.fechaHora));
-    _agruparEventos();
-    await _guardarEnDisco();
+    _eventos = _uc.agruparEventos(_carreras);
     if (mounted) setState(() {});
   }
 
-  Future<void> _aplicarPoliticaRecordatorioLocal(Carrera c) async {
-    if (_debeTenerRecordatorio(c)) {
-      await ServicioNotificaciones.instancia.reprogramarRecordatorioCarrera(
-        raceId: c.id, title: c.titulo, raceDateTimeLocal: c.fechaHora,
-      );
-    } else {
-      await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(c.id);
-    }
-  }
-
   Future<void> _actualizarEstado(Carrera c, EstadoCarrera nuevo) async {
-    final prev = c.estado;
-    c.estado = nuevo;
-
-    if (c.id <= 0) {
-      await _aplicarPoliticaRecordatorioLocal(c);
-      _mostrarSnack('Estado guardado localmente.');
-      await _guardarEnDisco();
-      if (mounted) setState(() {});
-      return;
-    }
-
-    try {
-      final resp = await http.patch(
-        Uri.parse('$_baseUrl/carreras/${c.id}/estado?estado=${_estadoAApi(nuevo)}'),
-        headers: _encabezadosAuth(),
-      );
-      if (resp.statusCode == 200) {
-        _mostrarSnack('Estado de la carrera actualizado.');
-        await _aplicarPoliticaRecordatorioLocal(c);
-      } else {
-        c.estado = prev;
-        _mostrarSnack('Error (${resp.statusCode}): ${resp.body}');
-      }
-    } on SocketException catch (_) {
-      _mostrarSnack('Sin conexión. Estado guardado sólo localmente.');
-      await _aplicarPoliticaRecordatorioLocal(c);
-    } on TimeoutException catch (_) {
-      _mostrarSnack('Sin conexión (timeout). Estado local.');
-      await _aplicarPoliticaRecordatorioLocal(c);
-    } on http.ClientException catch (_) {
-      _mostrarSnack('Sin conexión. Estado local.');
-      await _aplicarPoliticaRecordatorioLocal(c);
-    }
-
-    await _guardarEnDisco();
+    final upd = await _uc.actualizarEstado(
+      corredorId: corredorId,
+      contrasenia: contrasenia,
+      carrera: c,
+      nuevo: nuevo,
+      onSnack: _mostrarSnack,
+    );
+    _carreras
+      ..clear()
+      ..addAll(upd);
+    _eventos = _uc.agruparEventos(_carreras);
     if (mounted) setState(() {});
   }
 
   Future<void> _eliminarCarrera(Carrera c) async {
-    await ServicioNotificaciones.instancia.cancelarRecordatorioCarrera(c.id);
-
-    if (c.id > 0) {
-      try {
-        final resp = await http.delete(Uri.parse('$_baseUrl/carreras/${c.id}'), headers: _encabezadosAuth());
-        if (resp.statusCode != 200) {
-          _mostrarSnack('Error al eliminar (${resp.statusCode}): ${resp.body}');
-          return;
-        }
-      } on SocketException catch (_) {
-        _mostrarSnack('Sin conexión. No se pudo eliminar en servidor.');
-        return;
-      } on TimeoutException catch (_) {
-        _mostrarSnack('Sin conexión (timeout). No se pudo eliminar en servidor.');
-        return;
-      } on http.ClientException catch (_) {
-        _mostrarSnack('Sin conexión. No se pudo eliminar en servidor.');
-        return;
-      }
-    }
-
-    _carreras.removeWhere((r) => r.id == c.id);
-    _agruparEventos();
-    await _guardarEnDisco();
-    if (mounted) setState(() {});
-    _mostrarSnack('Carrera eliminada.');
-  }
-
-  void _confirmarEliminar(Carrera c) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text("Eliminar carrera"),
-        content: const Text("¿Seguro que deseas eliminar esta carrera?"),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
-          TextButton(onPressed: () async { Navigator.pop(ctx); await _eliminarCarrera(c); },
-              child: const Text("Eliminar", style: TextStyle(color: Colors.red))),
-        ],
-      ),
+    final upd = await _uc.eliminarCarrera(
+      corredorId: corredorId,
+      contrasenia: contrasenia,
+      carrera: c,
+      onSnack: _mostrarSnack,
     );
+    _carreras
+      ..clear()
+      ..addAll(upd);
+    _eventos = _uc.agruparEventos(_carreras);
+    if (mounted) setState(() {});
   }
 
-  // =============================
-  // Build
-  // =============================
   @override
   Widget build(BuildContext context) {
     if (!_usuarioCargado) {
       return const Scaffold(body: Center(child: CircularProgressIndicator(color: primaryColor)));
     }
 
-    final eventosDelSeleccionado = _eventosDelDia(_diaSeleccionado);
+    final eventosDelSeleccionado = _eventos[_strip(_diaSeleccionado)] ?? [];
 
     return Scaffold(
       appBar: AppBar(
@@ -616,6 +217,8 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
     );
   }
 
+  DateTime _strip(DateTime d) => DateTime(d.year, d.month, d.day);
+
   Widget _construirCalendario() {
     return TableCalendar<Carrera>(
       firstDay: DateTime.utc(2020, 1, 1),
@@ -623,7 +226,7 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
       focusedDay: _diaEnfocado,
       calendarFormat: _formatoCalendario,
       selectedDayPredicate: (day) => isSameDay(_diaSeleccionado, day),
-      eventLoader: _eventosDelDia,
+      eventLoader: (day) => _eventos[_strip(day)] ?? [],
       startingDayOfWeek: StartingDayOfWeek.monday,
       calendarStyle: CalendarStyle(
         outsideDaysVisible: false,
@@ -700,6 +303,21 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
           ),
         );
       },
+    );
+  }
+
+  void _confirmarEliminar(Carrera c) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Eliminar carrera"),
+        content: const Text("¿Seguro que deseas eliminar esta carrera?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
+          TextButton(onPressed: () async { Navigator.pop(ctx); await _eliminarCarrera(c); },
+              child: const Text("Eliminar", style: TextStyle(color: Colors.red))),
+        ],
+      ),
     );
   }
 }
