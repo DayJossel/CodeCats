@@ -104,7 +104,10 @@ class _EstadoPantallaPrincipal extends State<PantallaPrincipal> {
   ];
 
   void _alTocarItem(int indice) {
-    setState(() => _indiceSeleccionado = indice); // 🔹 Perfil habilitado si ya está listo
+    if (indice == 4) {
+      return;
+    }
+    setState(() => _indiceSeleccionado = indice);
   }
 
   @override

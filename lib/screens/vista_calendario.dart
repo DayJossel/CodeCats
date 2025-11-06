@@ -202,18 +202,7 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
                 ),
               ],
             ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 8.0, right: 8.0),
-          child: FloatingActionButton.small(
-            onPressed: () => _mostrarFormulario(diaSeleccionado: _diaSeleccionado),
-            backgroundColor: primaryColor,
-            foregroundColor: Colors.black,
-            child: const Icon(Icons.add),
-          ),
-        ),
-      ),
+      // ⛔️ FAB eliminado (antes estaba aquí)
     );
   }
 
@@ -314,7 +303,11 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
         content: const Text("¿Seguro que deseas eliminar esta carrera?"),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
-          TextButton(onPressed: () async { Navigator.pop(ctx); await _eliminarCarrera(c); },
+          TextButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _eliminarCarrera(c);
+              },
               child: const Text("Eliminar", style: TextStyle(color: Colors.red))),
         ],
       ),
@@ -358,7 +351,8 @@ class TarjetaCarrera extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(carrera.titulo,
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                          style:
+                              const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                       Text(_formatearHora(TimeOfDay.fromDateTime(carrera.fechaHora)),
                           style: const TextStyle(color: Colors.grey, fontSize: 14)),
                     ],
@@ -492,7 +486,10 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
                 children: [
                   TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancelar')),
                   TextButton(
-                    onPressed: () { setState(() => _hora = tmp); Navigator.of(ctx).pop(); },
+                    onPressed: () {
+                      setState(() => _hora = tmp);
+                      Navigator.of(ctx).pop();
+                    },
                     child: const Text('Guardar', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ],
@@ -502,7 +499,9 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
               child: CupertinoDatePicker(
                 mode: CupertinoDatePickerMode.time,
                 initialDateTime: DateTime(
-                  DateTime.now().year, DateTime.now().month, DateTime.now().day,
+                  DateTime.now().year,
+                  DateTime.now().month,
+                  DateTime.now().day,
                   _hora?.hour ?? TimeOfDay.now().hour,
                   _hora?.minute ?? TimeOfDay.now().minute,
                 ),
@@ -525,7 +524,8 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
       );
       return;
     }
-    final full = DateTime(_fecha!.year, _fecha!.month, _fecha!.day, _hora!.hour, _hora!.minute);
+    final full =
+        DateTime(_fecha!.year, _fecha!.month, _fecha!.day, _hora!.hour, _hora!.minute);
     widget.onSave(titulo, full, _estado);
     Navigator.of(context).pop();
   }
@@ -536,10 +536,12 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
       padding: const EdgeInsets.all(24.0),
       decoration: const BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+        borderRadius:
+            BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(widget.carrera == null ? 'Programar Carrera' : 'Editar Carrera',
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
@@ -554,8 +556,12 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
           const SizedBox(height: 16),
           DropdownButtonFormField<EstadoCarrera>(
             value: _estado,
-            onChanged: (EstadoCarrera? v) { if (v != null) setState(() => _estado = v); },
-            items: EstadoCarrera.values.map((e) => DropdownMenuItem(value: e, child: Text(_estadoATexto(e)))).toList(),
+            onChanged: (EstadoCarrera? v) {
+              if (v != null) setState(() => _estado = v);
+            },
+            items: EstadoCarrera.values
+                .map((e) => DropdownMenuItem(value: e, child: Text(_estadoATexto(e))))
+                .toList(),
             decoration: const InputDecoration(labelText: 'Estado'),
             dropdownColor: cardColor,
           ),
@@ -568,7 +574,8 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
                   child: InputDecorator(
                     decoration: const InputDecoration(labelText: 'Fecha'),
                     child: Text(
-                      _fecha == null ? 'Seleccionar'
+                      _fecha == null
+                          ? 'Seleccionar'
                           : '${_fecha!.day}/${_fecha!.month}/${_fecha!.year}',
                       style: const TextStyle(color: Colors.white),
                     ),
@@ -602,9 +609,12 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
 
   String _estadoATexto(EstadoCarrera e) {
     switch (e) {
-      case EstadoCarrera.pendiente: return 'Pendiente';
-      case EstadoCarrera.hecha: return 'Hecha';
-      case EstadoCarrera.noRealizada: return 'No Realizada';
+      case EstadoCarrera.pendiente:
+        return 'Pendiente';
+      case EstadoCarrera.hecha:
+        return 'Hecha';
+      case EstadoCarrera.noRealizada:
+        return 'No Realizada';
     }
   }
 }
