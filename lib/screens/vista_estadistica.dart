@@ -1,15 +1,9 @@
 // lib/screens/vista_estadistica.dart
-import 'dart:convert';
-import 'dart:async';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../main.dart'; // colores
-
-const String _baseUrl = 'http://157.137.187.110:8000';
+import '../backend/dominio/estadistica.dart';
+import '../backend/dominio/modelos/estadistica.dart';
 
 class VistaEstadistica extends StatefulWidget {
   final int year;
@@ -21,14 +15,13 @@ class VistaEstadistica extends StatefulWidget {
 }
 
 class EstadoVistaEstadistica extends State<VistaEstadistica> {
-  int anio = 0;
-  int mes = 0;
-
-  int? corredorId;
-  String? contrasenia;
+  late int anio;
+  late int mes;
 
   bool _cargando = false;
   String? _error;
+  String? _notaFuente; // “Mostrando datos locales…”
+  bool _tieneSesion = false;
 
   // Datos
   int? objetivo;
@@ -43,97 +36,31 @@ class EstadoVistaEstadistica extends State<VistaEstadistica> {
     super.initState();
     anio = widget.year;
     mes = widget.month;
-    _inicializar();
+    _bootstrap();
   }
 
-  Future<void> _inicializar() async {
-    final prefs = await SharedPreferences.getInstance();
-    corredorId = prefs.getInt('corredor_id');
-    contrasenia = prefs.getString('contrasenia');
+  Future<void> _bootstrap() async {
+    _tieneSesion = await EstadisticaUC.tieneSesion();
     await _cargarEstadisticas();
   }
 
-  Map<String, String> _encabezadosAuth() => {
-        'X-Corredor-Id': '${corredorId ?? ''}',
-        'X-Contrasenia': contrasenia ?? '',
-      };
-
   Future<void> _cargarEstadisticas() async {
-    if (corredorId == null || contrasenia == null) {
-      setState(() {
-        _error = 'No hay sesión cargada';
-      });
-      return;
-    }
-    setState(() {
-      _cargando = true;
-      _error = null;
-    });
+    setState(() { _cargando = true; _error = null; _notaFuente = null; });
     try {
-      final uri = Uri.parse('$_baseUrl/estadistica/mensual?year=$anio&month=$mes');
-      final resp = await http.get(uri, headers: _encabezadosAuth());
-      if (resp.statusCode == 200) {
-        final m = jsonDecode(resp.body) as Map<String, dynamic>;
-        setState(() {
-          objetivo = m['objetivo'] as int?;
-          total = m['total'] as int;
-          hechas = m['hechas'] as int;
-          pendientes = m['pendientes'] as int;
-          noRealizadas = m['no_realizadas'] as int;
-          cumple = m['cumple_objetivo'] as bool?;
-        });
-      } else {
-        await _respaldoLocal();
-      }
-    } on SocketException catch (_) {
-      await _respaldoLocal();
-    } on TimeoutException catch (_) {
-      await _respaldoLocal();
-    } on http.ClientException catch (_) {
-      await _respaldoLocal();
-    } finally {
-      if (mounted) setState(() => _cargando = false);
-    }
-  }
-
-  Future<void> _respaldoLocal() async {
-    // Lee 'races_storage_v1' y calcula métricas del mes (sin objetivo)
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('races_storage_v1');
-      int _total = 0, _hechas = 0, _pend = 0, _no = 0;
-      if (raw != null && raw.isNotEmpty) {
-        final List list = jsonDecode(raw) as List;
-        for (final e in list) {
-          final m = e as Map<String, dynamic>;
-          // Vista Calendario guarda: 'fechaHora' (ISO) y 'estado' (índice)
-          final dt = DateTime.parse(m['fechaHora'] as String);
-          if (dt.year == anio && dt.month == mes) {
-            _total += 1;
-            final statusIndex = (m['estado'] as int?) ?? 0;
-            if (statusIndex == 1) {
-              _hechas += 1;
-            } else if (statusIndex == 2) {
-              _no += 1;
-            } else {
-              _pend += 1;
-            }
-          }
-        }
-      }
+      final est = await EstadisticaUC.cargar(year: anio, month: mes);
       setState(() {
-        objetivo = null;
-        total = _total;
-        hechas = _hechas;
-        pendientes = _pend;
-        noRealizadas = _no;
-        cumple = null;
-        _error = 'Mostrando datos locales (sin objetivo)';
+        objetivo = est.objetivo;
+        total = est.total;
+        hechas = est.hechas;
+        pendientes = est.pendientes;
+        noRealizadas = est.noRealizadas;
+        cumple = est.cumpleObjetivo;
+        _notaFuente = est.fromLocal ? 'Mostrando datos locales (sin objetivo)' : null;
       });
     } catch (e) {
-      setState(() {
-        _error = 'No se pudo recuperar estadísticas. $e';
-      });
+      setState(() { _error = 'No se pudo cargar estadísticas. $e'; });
+    } finally {
+      if (mounted) setState(() { _cargando = false; });
     }
   }
 
@@ -142,6 +69,8 @@ class EstadoVistaEstadistica extends State<VistaEstadistica> {
     final valor = await showDialog<int?>(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: cardColor,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: const Text('Objetivo mensual'),
         content: TextField(
           controller: controlador,
@@ -163,50 +92,30 @@ class EstadoVistaEstadistica extends State<VistaEstadistica> {
     if (valor == null) return;
 
     try {
-      final uri = Uri.parse('$_baseUrl/objetivos/mensual?year=$anio&month=$mes');
-      final resp = await http.post(
-        uri,
-        headers: {
-          ..._encabezadosAuth(),
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({'objetivo': valor}),
-      );
-      if (resp.statusCode == 201 || resp.statusCode == 200) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Objetivo guardado')),
-        );
-        await _cargarEstadisticas();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al guardar objetivo (${resp.statusCode})')),
-        );
-      }
+      await EstadisticaUC.definirObjetivo(year: anio, month: mes, objetivo: valor);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Objetivo guardado')));
+      await _cargarEstadisticas();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Sin conexión. No se pudo guardar. $e')),
+        SnackBar(content: Text(e.toString())),
       );
     }
   }
 
-  void _mesAnterior() {
+  void _mesAnterior() async {
     final d = DateTime(anio, mes, 1);
     final p = DateTime(d.year, d.month - 1, 1);
-    setState(() {
-      anio = p.year;
-      mes = p.month;
-    });
-    _cargarEstadisticas();
+    setState(() { anio = p.year; mes = p.month; });
+    await _cargarEstadisticas();
   }
 
-  void _mesSiguiente() {
+  void _mesSiguiente() async {
     final d = DateTime(anio, mes, 1);
     final n = DateTime(d.year, d.month + 1, 1);
-    setState(() {
-      anio = n.year;
-      mes = n.month;
-    });
-    _cargarEstadisticas();
+    setState(() { anio = n.year; mes = n.month; });
+    await _cargarEstadisticas();
   }
 
   @override
@@ -233,12 +142,23 @@ class EstadoVistaEstadistica extends State<VistaEstadistica> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+                    ),
+                  if (_notaFuente != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
                         color: Colors.orange.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: Text(_error!, style: const TextStyle(color: Colors.orange)),
+                      child: Text(_notaFuente!, style: const TextStyle(color: Colors.orange)),
                     ),
-                  const SizedBox(height: 12),
+                    const SizedBox(height: 12),
+                  ],
                   FichaEstadistica(etiqueta: 'Objetivo mensual', valor: objetivo?.toString() ?? 'No registrado'),
                   const SizedBox(height: 8),
                   FichaEstadistica(etiqueta: 'Total programadas', valor: '$total'),
@@ -273,7 +193,7 @@ class EstadoVistaEstadistica extends State<VistaEstadistica> {
                     child: ElevatedButton.icon(
                       icon: const Icon(Icons.flag),
                       label: Text(objetivo == null ? 'Registrar objetivo' : 'Editar objetivo'),
-                      onPressed: (corredorId == null || contrasenia == null) ? null : _definirObjetivo,
+                      onPressed: _tieneSesion ? _definirObjetivo : null,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,
                         foregroundColor: Colors.black,
