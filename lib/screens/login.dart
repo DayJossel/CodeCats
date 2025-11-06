@@ -1,10 +1,8 @@
-import 'dart:convert';
+// lib/screens/login.dart
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 
-import '../backend/core/session_repository.dart';
-import '../backend/data/api_service.dart';
-import '../main.dart'; // Colores y MainScreen
+import '../backend/dominio/auth.dart';
+import '../main.dart'; // Colores y PantallaPrincipal
 
 class PantallaAutenticacion extends StatefulWidget {
   const PantallaAutenticacion({super.key});
@@ -21,11 +19,7 @@ class AuthScreen extends PantallaAutenticacion {
 class EstadoPantallaAutenticacion extends State<PantallaAutenticacion> {
   bool _esLogin = true;
 
-  void _alternarModo() {
-    setState(() {
-      _esLogin = !_esLogin;
-    });
-  }
+  void _alternarModo() => setState(() => _esLogin = !_esLogin);
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +37,7 @@ class EstadoPantallaAutenticacion extends State<PantallaAutenticacion> {
 }
 
 // ------------------------------------------------------------
-// VISTA DE INICIO DE SESIÓN
+// VISTA DE INICIO DE SESIÓN (solo UI)
 // ------------------------------------------------------------
 class VistaLogin extends StatefulWidget {
   final VoidCallback onToggle;
@@ -78,46 +72,20 @@ class EstadoVistaLogin extends State<VistaLogin> {
     }
 
     setState(() => _cargando = true);
-
     try {
-      // Preferimos el servicio centralizado (maneja errores y formato)
-      final data = await ServicioApi.iniciarSesion(
-        correo: correo,
-        contrasenia: contrasenia,
+      final res = await AuthUC.iniciarSesion(correo: correo, contrasenia: contrasenia);
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Bienvenido ${res.nombre.isEmpty ? res.correo : res.nombre}')),
       );
-
-      // Acepta tanto respuestas con {ok:true,...} como sin 'ok'
-      final corredorId = (data['corredor_id'] as num?)?.toInt() ??
-          (data['id'] as num?)?.toInt();
-      final nombre = (data['nombre'] as String?) ?? '';
-      final ok = (data['ok'] == true) || (corredorId != null);
-
-      if (ok && corredorId != null) {
-        await RepositorioSesion.guardarLogin(
-          corredorId: corredorId,
-          contrasenia: contrasenia,
-          nombre: nombre,
-          correo: correo,
-        );
-
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Bienvenido $nombre')),
-        );
-
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const PantallaPrincipal()),
-        );
-      } else {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Credenciales incorrectas')),
-        );
-      }
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const PantallaPrincipal()),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
+          .showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _cargando = false);
     }
@@ -125,29 +93,17 @@ class EstadoVistaLogin extends State<VistaLogin> {
 
   @override
   Widget build(BuildContext context) {
+    final topGap = MediaQuery.of(context).size.height * 0.1;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(height: MediaQuery.of(context).size.height * 0.1),
-        const Text(
-          'Bienvenido',
-          style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold),
-        ),
-        const Text(
-          'Inicia sesión para continuar',
-          style: TextStyle(color: Colors.grey, fontSize: 16),
-        ),
-        SizedBox(height: MediaQuery.of(context).size.height * 0.1),
-        _construirCampoTexto(
-          label: 'Correo electrónico',
-          controller: correoController,
-        ),
+        SizedBox(height: topGap),
+        const Text('Bienvenido', style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold)),
+        const Text('Inicia sesión para continuar', style: TextStyle(color: Colors.grey, fontSize: 16)),
+        SizedBox(height: topGap),
+        _construirCampoTexto(label: 'Correo electrónico', controller: correoController),
         const SizedBox(height: 16),
-        _construirCampoTexto(
-          label: 'Contraseña',
-          controller: contraseniaController,
-          obscureText: true,
-        ),
+        _construirCampoTexto(label: 'Contraseña', controller: contraseniaController, obscureText: true),
         const SizedBox(height: 40),
         SizedBox(
           width: double.infinity,
@@ -165,13 +121,7 @@ class EstadoVistaLogin extends State<VistaLogin> {
             const Text('¿No tienes cuenta? '),
             GestureDetector(
               onTap: widget.onToggle,
-              child: const Text(
-                'Regístrate',
-                style: TextStyle(
-                  color: primaryColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              child: const Text('Regístrate', style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -181,7 +131,7 @@ class EstadoVistaLogin extends State<VistaLogin> {
 }
 
 // ------------------------------------------------------------
-// VISTA DE CREAR CUENTA
+// VISTA DE REGISTRO (solo UI)
 // ------------------------------------------------------------
 class VistaRegistro extends StatefulWidget {
   final VoidCallback onToggle;
@@ -213,10 +163,7 @@ class EstadoVistaRegistro extends State<VistaRegistro> {
     final contrasenia = contraseniaController.text.trim();
     final telefono = telefonoController.text.trim();
 
-    if (nombre.isEmpty ||
-        correo.isEmpty ||
-        contrasenia.isEmpty ||
-        telefono.isEmpty) {
+    if (nombre.isEmpty || correo.isEmpty || contrasenia.isEmpty || telefono.isEmpty) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Por favor llena todos los campos')),
@@ -225,42 +172,22 @@ class EstadoVistaRegistro extends State<VistaRegistro> {
     }
 
     setState(() => _cargando = true);
-
     try {
-      // Registro directo (si quieres lo movemos luego a ServicioApi)
-      final resp = await http.post(
-        Uri.parse('http://157.137.187.110:8000/corredores'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'nombre': nombre,
-          'correo': correo,
-          'contrasenia': contrasenia,
-          'telefono': telefono,
-        }),
+      final creado = await AuthUC.registrar(
+        nombre: nombre,
+        correo: correo,
+        contrasenia: contrasenia,
+        telefono: telefono,
       );
-
-      if (resp.statusCode == 200 || resp.statusCode == 201) {
-        final data = jsonDecode(resp.body);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Cuenta creada: ${data['nombre']}')),
-        );
-        widget.onToggle(); // vuelve a la vista de login
-      } else {
-        final error = jsonDecode(resp.body);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Error: ${error['detail'] ?? 'No se pudo registrar'}',
-            ),
-          ),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cuenta creada: $creado')),
+      );
+      widget.onToggle(); // vuelve a Login
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
+          .showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _cargando = false);
     }
@@ -272,32 +199,16 @@ class EstadoVistaRegistro extends State<VistaRegistro> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 40),
-        const Text(
-          'Crear Cuenta',
-          style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold),
-        ),
-        const Text(
-          'Únete a CHITA para correr seguro',
-          style: TextStyle(color: Colors.grey, fontSize: 16),
-        ),
+        const Text('Crear Cuenta', style: TextStyle(fontSize: 40, fontWeight: FontWeight.bold)),
+        const Text('Únete a CHITA para correr seguro', style: TextStyle(color: Colors.grey, fontSize: 16)),
         const SizedBox(height: 30),
         _construirCampoTexto(label: 'Nombre completo', controller: nombreController),
         const SizedBox(height: 16),
-        _construirCampoTexto(
-          label: 'Correo electrónico',
-          controller: correoController,
-        ),
+        _construirCampoTexto(label: 'Correo electrónico', controller: correoController),
         const SizedBox(height: 16),
-        _construirCampoTexto(
-          label: 'Contraseña',
-          controller: contraseniaController,
-          obscureText: true,
-        ),
+        _construirCampoTexto(label: 'Contraseña', controller: contraseniaController, obscureText: true),
         const SizedBox(height: 16),
-        _construirCampoTexto(
-          label: 'Número de teléfono',
-          controller: telefonoController,
-        ),
+        _construirCampoTexto(label: 'Número de teléfono', controller: telefonoController),
         const SizedBox(height: 30),
         SizedBox(
           width: double.infinity,
@@ -315,13 +226,7 @@ class EstadoVistaRegistro extends State<VistaRegistro> {
             const Text('¿Ya tienes cuenta? '),
             GestureDetector(
               onTap: widget.onToggle,
-              child: const Text(
-                'Inicia Sesión',
-                style: TextStyle(
-                  color: primaryColor,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+              child: const Text('Inicia Sesión', style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -331,7 +236,7 @@ class EstadoVistaRegistro extends State<VistaRegistro> {
 }
 
 // ------------------------------------------------------------
-// HELPER REUTILIZABLE
+// HELPER REUTILIZABLE (UI)
 // ------------------------------------------------------------
 Widget _construirCampoTexto({
   required String label,

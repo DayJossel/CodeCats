@@ -1,10 +1,9 @@
-import 'dart:convert';
-import 'package:chita_app/screens/login.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
+import 'login.dart';
 import '../main.dart';
-import '../backend/core/session_repository.dart';
+
+import '../backend/dominio/profile.dart';
+import '../backend/dominio/modelos/corredor.dart';
 
 class PantallaPerfil extends StatefulWidget {
   const PantallaPerfil({super.key});
@@ -19,52 +18,41 @@ class ProfileScreen extends PantallaPerfil {
 }
 
 class EstadoPantallaPerfil extends State<PantallaPerfil> {
-  String nombre = '';
-  String correo = '';
-  String telefono = '';
-  int corredorId = 0;
-  String contrasenia = '';
   bool _cargando = true;
+  String? _error;
+  CorredorPerfil? _perfil;
 
   @override
   void initState() {
     super.initState();
-    _cargarDatosUsuario();
+    _bootstrap();
   }
 
-  Future<void> _cargarDatosUsuario() async {
-    final prefs = await SharedPreferences.getInstance();
-    corredorId = prefs.getInt('corredor_id') ?? 0;
-    contrasenia = prefs.getString('contrasenia') ?? '';
-
-    if (corredorId != 0 && contrasenia.isNotEmpty) {
-      try {
-        final response = await http.get(
-          Uri.parse('http://157.137.187.110:8000/corredores/$corredorId'),
-          headers: {'X-Corredor-Id': '$corredorId', 'X-Contrasenia': contrasenia},
-        );
-
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          setState(() {
-            nombre = (data['nombre'] as String?) ?? '';
-            correo = (data['correo'] as String?) ?? '';
-            telefono = (data['telefono'] as String?) ?? '';
-            _cargando = false;
-          });
-        } else {
-          setState(() => _cargando = false);
-        }
-      } catch (_) {
-        setState(() => _cargando = false);
+  Future<void> _bootstrap() async {
+    try {
+      final ok = await ProfileUC.tieneSesion();
+      if (!ok) {
+        setState(() {
+          _cargando = false;
+          _error = 'No hay sesión activa.';
+        });
+        return;
       }
-    } else {
-      setState(() => _cargando = false);
+      final p = await ProfileUC.cargarPerfil();
+      setState(() {
+        _perfil = p;
+        _cargando = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _cargando = false;
+      });
     }
   }
 
   Future<void> _cerrarSesion() async {
-    await RepositorioSesion.limpiar(); // alias al SessionRepository.clear()
+    await ProfileUC.cerrarSesion();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const AuthScreen()),
@@ -74,34 +62,25 @@ class EstadoPantallaPerfil extends State<PantallaPerfil> {
 
   Future<void> _eliminarCuenta() async {
     try {
-      final response = await http.delete(
-        Uri.parse('http://157.137.187.110:8000/corredores/$corredorId'),
-        headers: {'X-Corredor-Id': '$corredorId', 'X-Contrasenia': contrasenia},
+      await ProfileUC.eliminarCuenta();
+      await ProfileUC.cerrarSesion();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cuenta eliminada exitosamente')),
       );
-
-      if (response.statusCode == 200) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.clear();
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('Cuenta eliminada exitosamente')));
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const AuthScreen()),
-            (Route<dynamic> route) => false,
-          );
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al eliminar la cuenta: ${response.body}')),
-        );
-      }
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthScreen()),
+        (_) => false,
+      );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error de conexión: $e')));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
     }
   }
 
-  void _mostrarConfirmacionEliminacion() {
+  void _confirmarEliminar() {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -161,6 +140,34 @@ class EstadoPantallaPerfil extends State<PantallaPerfil> {
       );
     }
 
+    if (_error != null) {
+      return Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.redAccent, size: 48),
+                  const SizedBox(height: 12),
+                  Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
+                  const SizedBox(height: 16),
+                  ElevatedButton(onPressed: _bootstrap, child: const Text('Reintentar')),
+                  const SizedBox(height: 12),
+                  TextButton(
+                    onPressed: _cerrarSesion,
+                    child: const Text('Volver a iniciar sesión'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final p = _perfil!;
     return Scaffold(
       body: SafeArea(
         child: ListView(
@@ -168,28 +175,28 @@ class EstadoPantallaPerfil extends State<PantallaPerfil> {
           children: [
             Center(
               child: Text(
-                correo,
+                p.correo,
                 style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 30),
-            const TituloSeccion(titulo: 'Información Personal'),
+            const _TituloSeccion(titulo: 'Información Personal'),
             const SizedBox(height: 16),
-            InfoTile(etiqueta: 'Nombre Completo', valor: nombre),
+            _InfoTile(etiqueta: 'Nombre Completo', valor: p.nombre),
             const SizedBox(height: 16),
-            InfoTile(etiqueta: 'Email', valor: correo),
+            _InfoTile(etiqueta: 'Email', valor: p.correo),
             const SizedBox(height: 16),
-            InfoTile(etiqueta: 'Número de Teléfono', valor: telefono),
+            _InfoTile(etiqueta: 'Número de Teléfono', valor: p.telefono),
             const SizedBox(height: 30),
-            const TituloSeccion(titulo: 'Cuenta'),
+            const _TituloSeccion(titulo: 'Cuenta'),
             const SizedBox(height: 16),
-            BotonAccionCuenta(texto: 'Cerrar Sesión', icono: Icons.logout, onTap: _cerrarSesion),
+            _BotonAccionCuenta(texto: 'Cerrar Sesión', icono: Icons.logout, onTap: _cerrarSesion),
             const SizedBox(height: 16),
-            BotonAccionCuenta(
+            _BotonAccionCuenta(
               texto: 'Eliminar Cuenta',
               icono: Icons.delete_outline,
               colorTexto: accentColor,
-              onTap: _mostrarConfirmacionEliminacion,
+              onTap: _confirmarEliminar,
             ),
           ],
         ),
@@ -198,10 +205,10 @@ class EstadoPantallaPerfil extends State<PantallaPerfil> {
   }
 }
 
-// Reutilizables
-class TituloSeccion extends StatelessWidget {
+// Reutilizables locales (privados)
+class _TituloSeccion extends StatelessWidget {
   final String titulo;
-  const TituloSeccion({required this.titulo});
+  const _TituloSeccion({required this.titulo});
   @override
   Widget build(BuildContext context) => Text(
         titulo,
@@ -209,10 +216,10 @@ class TituloSeccion extends StatelessWidget {
       );
 }
 
-class InfoTile extends StatelessWidget {
+class _InfoTile extends StatelessWidget {
   final String etiqueta;
   final String valor;
-  const InfoTile({required this.etiqueta, required this.valor});
+  const _InfoTile({required this.etiqueta, required this.valor});
   @override
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -229,12 +236,12 @@ class InfoTile extends StatelessWidget {
       );
 }
 
-class BotonAccionCuenta extends StatelessWidget {
+class _BotonAccionCuenta extends StatelessWidget {
   final String texto;
   final IconData icono;
   final VoidCallback onTap;
   final Color colorTexto;
-  const BotonAccionCuenta({
+  const _BotonAccionCuenta({
     required this.texto,
     required this.icono,
     required this.onTap,

@@ -1,8 +1,8 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 
-import 'backend/core/session_repository.dart';
-import 'backend/core/notification_service.dart';
+import 'backend/core/app_boot.dart';
+import 'backend/dominio/auth.dart'; // para AuthUC.tieneSesion()
 
 import 'screens/login.dart';
 import 'screens/profile.dart';
@@ -19,11 +19,7 @@ const Color cardColor = Color(0xFF1E1E1E);        // Color de tarjetas
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Inicializa notificaciones y solicita permisos
-  await ServicioNotificaciones.instancia.inicializar();
-  await ServicioNotificaciones.instancia.solicitarPermisoNotificaciones();
-
+  await AppBoot.inicializar(); // 🔹 movido fuera del UI
   runApp(const AppChita());
 }
 
@@ -68,15 +64,11 @@ class AppChita extends StatelessWidget {
 class PuertaAutenticacion extends StatefulWidget {
   const PuertaAutenticacion({super.key});
   @override
-  State<PuertaAutenticacion> createState() => EstadoPuertaAutenticacion();
+  State<PuertaAutenticacion> createState() => _EstadoPuertaAutenticacion();
 }
 
-class EstadoPuertaAutenticacion extends State<PuertaAutenticacion> {
-  Future<bool> _estaAutenticado() async {
-    final id = await RepositorioSesion.obtenerCorredorId();
-    final pwd = await RepositorioSesion.obtenerContrasenia();
-    return id != null && (pwd != null && pwd.isNotEmpty);
-  }
+class _EstadoPuertaAutenticacion extends State<PuertaAutenticacion> {
+  Future<bool> _estaAutenticado() => AuthUC.tieneSesion(); // 🔹 usa UC en lugar de tocar SharedPrefs
 
   @override
   Widget build(BuildContext context) {
@@ -85,7 +77,7 @@ class EstadoPuertaAutenticacion extends State<PuertaAutenticacion> {
       builder: (context, snap) {
         if (!snap.hasData) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+            body: Center(child: CircularProgressIndicator(color: primaryColor)),
           );
         }
         return snap.data! ? const PantallaPrincipal() : const AuthScreen();
@@ -96,12 +88,11 @@ class EstadoPuertaAutenticacion extends State<PuertaAutenticacion> {
 
 class PantallaPrincipal extends StatefulWidget {
   const PantallaPrincipal({super.key});
-
   @override
-  State<PantallaPrincipal> createState() => EstadoPantallaPrincipal();
+  State<PantallaPrincipal> createState() => _EstadoPantallaPrincipal();
 }
 
-class EstadoPantallaPrincipal extends State<PantallaPrincipal> {
+class _EstadoPantallaPrincipal extends State<PantallaPrincipal> {
   int _indiceSeleccionado = 0;
 
   static final List<Widget> _opcionesWidgets = <Widget>[
@@ -109,15 +100,11 @@ class EstadoPantallaPrincipal extends State<PantallaPrincipal> {
     const VistaEspacios(),
     const VistaContactos(),
     const VistaCalendario(),
-    const ProfileScreen(), // ← cuando renombremos profile.dart, cambiamos aquí también
+    const ProfileScreen(),
   ];
 
   void _alTocarItem(int indice) {
-    // 🔒 Deshabilitar temporalmente la pestaña de Perfil (índice 4)
-    if (indice == 4) {
-      return;
-    }
-    setState(() => _indiceSeleccionado = indice);
+    setState(() => _indiceSeleccionado = indice); // 🔹 Perfil habilitado si ya está listo
   }
 
   @override
