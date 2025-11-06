@@ -2,10 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../main.dart'; // Colores (backgroundColor, primaryColor, cardColor)
-import '../backend/data/api_service.dart';
-import '../backend/core/session_repository.dart';
-import '../backend/device/location_service.dart';
-import '../backend/device/sms_service.dart';
+import '../backend/dominio/contactos.dart';
+import '../backend/dominio/modelos/contacto.dart';
+import '../backend/dominio/ubicacion_compartida.dart';
 
 /// View-model para pintar contactos en esta vista
 class ContactoVm {
@@ -21,6 +20,15 @@ class ContactoVm {
     required this.initials,
   });
 
+  /// Desde modelo de dominio
+  factory ContactoVm.desdeDominio(Contacto c) => ContactoVm(
+        contactoId: c.id,
+        nombre: c.nombre,
+        telefono: c.telefono,
+        initials: _construirIniciales(c.nombre),
+      );
+
+  /// (Sigue disponible si en algún punto llega un map crudo)
   factory ContactoVm.desdeApi(Map<String, dynamic> j) {
     final nombre = (j['nombre'] as String?)?.trim() ?? 'Contacto';
     final tel = (j['telefono'] as String?)?.trim() ?? '';
@@ -32,6 +40,13 @@ class ContactoVm {
       initials: _construirIniciales(nombre),
     );
   }
+
+  Contacto aDominio() => Contacto(
+        id: contactoId,
+        nombre: nombre,
+        telefono: telefono,
+        relacion: 'N/A',
+      );
 
   static String _construirIniciales(String full) {
     final parts =
@@ -79,9 +94,10 @@ class EstadoVistaUbicacion extends State<VistaUbicacion> {
       _error = null;
     });
     try {
-      final list = await ServicioApi.obtenerContactos(); // [{contacto_id, nombre, telefono, ...}]
-      final mapped = list
-          .map(ContactoVm.desdeApi)
+      // 🔁 Ahora le pedimos al dominio (reutiliza credenciales internas)
+      final lista = await ContactosUC.listar();
+      final mapped = lista
+          .map(ContactoVm.desdeDominio)
           .where((c) => c.telefono.isNotEmpty)
           .toList();
       setState(() {
@@ -130,9 +146,9 @@ class EstadoVistaUbicacion extends State<VistaUbicacion> {
     required Duration total,
     required List<ContactoVm> selected,
   }) async {
-    // 1) Permisos SMS/Teléfono
+    // 1) Permisos SMS/Teléfono (dominio)
     try {
-      await ServicioSMS.asegurarPermisosSmsYTelefono();
+      await UbicacionCompartidaUC.asegurarPermisosSms();
     } catch (e) {
       _mensaje('No se obtuvieron permisos para SMS/Teléfono.');
       return;
@@ -172,49 +188,10 @@ class EstadoVistaUbicacion extends State<VistaUbicacion> {
     if (_enviando) return;
     _enviando = true;
     try {
-      // 3) Ubicación (best-effort)
-      double? lat, lng;
-      try {
-        final pos = await ServicioUbicacion.obtenerPosicionActual();
-        lat = pos.latitude;
-        lng = pos.longitude;
-      } catch (_) {
-        lat = null;
-        lng = null;
-      }
-
-      final corredor = await RepositorioSesion.nombre() ?? 'Corredor';
-      final urlMapa = (lat != null && lng != null)
-          ? ServicioUbicacion.urlMapsDesde(lat, lng)
-          : 'no disponible';
-
-      final mensaje = '''
-📍 COMPARTIR UBICACIÓN – CHITA
-Soy $corredor y estoy compartiendo mi ubicación.
-Última ubicación:
-$urlMapa
-(Enviado automáticamente por CHITA)
-'''.trim();
-
-      // 4) Enviar SMS a cada contacto seleccionado
-      int ok = 0, fail = 0;
-      for (final c in selected) {
-        final tel = c.telefono.trim();
-        if (tel.isEmpty) {
-          fail++;
-          continue;
-        }
-        try {
-          await ServicioSMS.enviarFlexibleMx(rawPhone: tel, message: mensaje);
-          ok++;
-        } catch (_) {
-          fail++;
-        }
-      }
-
-      if (mounted) {
-        _mensaje('Ubicación enviada: $ok OK, $fail fallidos.');
-      }
+      final (ok, fail) = await UbicacionCompartidaUC.enviarUbicacionUnaVez(
+        contactos: selected.map((e) => e.aDominio()).toList(),
+      );
+      if (mounted) _mensaje('Ubicación enviada: $ok OK, $fail fallidos.');
     } finally {
       _enviando = false;
     }
@@ -258,8 +235,7 @@ $urlMapa
         children: [
           // Encabezado
           Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -290,8 +266,7 @@ $urlMapa
                           padding: const EdgeInsets.all(16.0),
                           child: Text(_error!,
                               textAlign: TextAlign.center,
-                              style:
-                                  const TextStyle(color: Colors.redAccent)),
+                              style: const TextStyle(color: Colors.redAccent)),
                         ),
                       )
                     : ListView.builder(
@@ -366,10 +341,8 @@ class ElementoContacto extends StatelessWidget {
           ),
         ),
       ),
-      title:
-          Text(contact.nombre, style: const TextStyle(color: Colors.white)),
-      subtitle:
-          Text(contact.telefono, style: const TextStyle(color: Colors.grey)),
+      title: Text(contact.nombre, style: const TextStyle(color: Colors.white)),
+      subtitle: Text(contact.telefono, style: const TextStyle(color: Colors.grey)),
       trailing: Container(
         width: 24,
         height: 24,
@@ -440,55 +413,39 @@ class EstadoDialogoConfirmacion extends State<DialogoConfirmacion> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              '¿Quieres compartir tu ubicación con los contactos seleccionados?',
-            ),
+            const Text('¿Quieres compartir tu ubicación con los contactos seleccionados?'),
             const SizedBox(height: 20),
-
-            const Text('Frecuencia de actualización',
-                style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Frecuencia de actualización', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 8, runSpacing: 8,
               children: ['10 min', '30 min', '1 hora'].map((freq) {
                 final isSelected = _selectedFrequency == freq;
                 return ChoiceChip(
                   label: Text(freq),
                   selected: isSelected,
-                  onSelected: (selected) {
-                    if (selected) setState(() => _selectedFrequency = freq);
-                  },
+                  onSelected: (selected) => selected ? setState(() => _selectedFrequency = freq) : null,
                   backgroundColor: Colors.grey[800],
                   selectedColor: primaryColor,
-                  labelStyle: TextStyle(
-                    color: isSelected ? Colors.black : Colors.white,
-                  ),
+                  labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 );
               }).toList(),
             ),
-
             const SizedBox(height: 20),
-            const Text('Duración de la sesión',
-                style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text('Duración de la sesión', style: TextStyle(fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: 8, runSpacing: 8,
               children: ['1h', '2h', '3h', '4h', '5h'].map((duration) {
                 final isSelected = _selectedDuration == duration;
                 return ChoiceChip(
                   label: Text(duration),
                   selected: isSelected,
-                  onSelected: (selected) {
-                    if (selected) setState(() => _selectedDuration = duration);
-                  },
+                  onSelected: (selected) => selected ? setState(() => _selectedDuration = duration) : null,
                   backgroundColor: Colors.grey[800],
                   selectedColor: primaryColor,
-                  labelStyle: TextStyle(
-                    color: isSelected ? Colors.black : Colors.white,
-                  ),
+                  labelStyle: TextStyle(color: isSelected ? Colors.black : Colors.white),
                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 );
               }).toList(),

@@ -1,12 +1,11 @@
 // lib/screens/vista_contactos.dart
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
-import '../main.dart';
 
-const String _baseUrl = 'http://157.137.187.110:8000';
+import '../main.dart';
+import '../backend/core/session_repository.dart';
+import '../backend/dominio/contactos.dart';
+import '../backend/dominio/modelos/contacto.dart';
 
 class VistaContactos extends StatefulWidget {
   const VistaContactos({super.key});
@@ -16,7 +15,7 @@ class VistaContactos extends StatefulWidget {
 }
 
 class EstadoVistaContactos extends State<VistaContactos> {
-  List<Map<String, dynamic>> _contactos = [];
+  List<Contacto> _contactos = [];
   bool _cargando = false;
   int? corredorId;
   String? contrasenia;
@@ -25,44 +24,31 @@ class EstadoVistaContactos extends State<VistaContactos> {
   @override
   void initState() {
     super.initState();
-    _cargarDatosUsuario();
+    _bootstrap();
   }
 
-  Future<void> _cargarDatosUsuario() async {
-    final prefs = await SharedPreferences.getInstance();
-    corredorId = prefs.getInt('corredor_id');
-    contrasenia = prefs.getString('contrasenia');
-
+  Future<void> _bootstrap() async {
+    // Cargar credenciales desde backend/core/session_repository.dart
+    corredorId = await RepositorioSesion.obtenerCorredorId();
+    contrasenia = await RepositorioSesion.obtenerContrasenia();
     setState(() => _usuarioCargado = true);
 
     if (corredorId != null && contrasenia != null) {
-      _listarContactos();
+      await _listarContactos();
     }
   }
-
-  Map<String, String> _encabezadosAuth() => {
-        'X-Corredor-Id': '${corredorId ?? ''}',
-        'X-Contrasenia': contrasenia ?? '',
-      };
 
   Future<void> _listarContactos() async {
     if (corredorId == null || contrasenia == null) return;
     setState(() => _cargando = true);
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/contactos'),
-        headers: _encabezadosAuth(),
+      final data = await ContactosUC.listar(
+        corredorId: corredorId,
+        contrasenia: contrasenia,
       );
-      if (response.statusCode == 200) {
-        final data = (jsonDecode(response.body) as List)
-            .map((e) => (e as Map<String, dynamic>))
-            .toList();
-        setState(() => _contactos = data);
-      } else {
-        _mostrarSnack('Error al obtener contactos (${response.statusCode})');
-      }
+      setState(() => _contactos = data);
     } catch (e) {
-      _mostrarSnack('Error de conexión: $e');
+      _snack('Error al obtener contactos: $e');
     } finally {
       if (mounted) setState(() => _cargando = false);
     }
@@ -70,35 +56,32 @@ class EstadoVistaContactos extends State<VistaContactos> {
 
   Future<void> _eliminarContacto(int contactoId) async {
     try {
-      final response = await http.delete(
-        Uri.parse('$_baseUrl/contactos/$contactoId'),
-        headers: _encabezadosAuth(),
+      await ContactosUC.eliminar(
+        contactoId: contactoId,
+        corredorId: corredorId,
+        contrasenia: contrasenia,
       );
-      if (response.statusCode == 200) {
-        _mostrarSnack('Contacto eliminado correctamente');
-        _listarContactos();
-      } else {
-        _mostrarSnack('Error al eliminar (${response.statusCode})');
-      }
+      _snack('Contacto eliminado correctamente');
+      await _listarContactos();
     } catch (e) {
-      _mostrarSnack('Error: $e');
+      _snack('Error al eliminar: $e');
     }
   }
 
-  void _mostrarSnack(String msg) {
+  void _snack(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
-  void _mostrarModalAgregarEditar({Map<String, dynamic>? contacto}) {
+  void _mostrarModalAgregarEditar({Contacto? contacto}) {
     if (!_usuarioCargado || corredorId == null || contrasenia == null) {
-      _mostrarSnack('Espera a que se cargue tu sesión antes de agregar contactos.');
+      _snack('Espera a que se cargue tu sesión antes de agregar contactos.');
       return;
     }
 
     // 🔒 Límite de 5 contactos (solo al crear)
     if (contacto == null && _contactos.length >= 5) {
-      _mostrarSnack('Solo puedes registrar hasta 5 contactos de confianza.');
+      _snack('Solo puedes registrar hasta 5 contactos de confianza.');
       return;
     }
 
@@ -113,7 +96,7 @@ class EstadoVistaContactos extends State<VistaContactos> {
             contacto: contacto,
             corredorId: corredorId!,
             contrasenia: contrasenia!,
-            onSave: _listarContactos,
+            onSaved: _listarContactos,
             totalContactos: _contactos.length,
           ),
         );
@@ -132,9 +115,9 @@ class EstadoVistaContactos extends State<VistaContactos> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.pop(ctx);
-              _eliminarContacto(contactoId);
+              await _eliminarContacto(contactoId);
             },
             child: const Text("Eliminar", style: TextStyle(color: Colors.red)),
           ),
@@ -155,7 +138,7 @@ class EstadoVistaContactos extends State<VistaContactos> {
       body: _cargando
           ? const Center(child: CircularProgressIndicator(color: primaryColor))
           : _contactos.isEmpty
-              ? _construirEstadoVacio()
+              ? _estadoVacio()
               : RefreshIndicator(
                   onRefresh: _listarContactos,
                   color: primaryColor,
@@ -164,11 +147,6 @@ class EstadoVistaContactos extends State<VistaContactos> {
                     itemCount: _contactos.length,
                     itemBuilder: (context, index) {
                       final c = _contactos[index];
-                      final id = (c['contacto_id'] as num).toInt();
-                      final nombre = (c['nombre'] ?? '') as String;
-                      final tel = (c['telefono'] ?? '') as String;
-                      final rel = (c['relacion'] ?? 'N/A') as String;
-
                       return Card(
                         color: cardColor,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -177,14 +155,14 @@ class EstadoVistaContactos extends State<VistaContactos> {
                             backgroundColor: primaryColor,
                             child: Icon(Icons.person, color: Colors.black),
                           ),
-                          title: Text(nombre),
-                          subtitle: Text("$rel • $tel"),
+                          title: Text(c.nombre),
+                          subtitle: Text("${c.relacion} • ${c.telefono}"),
                           trailing: PopupMenuButton<String>(
                             onSelected: (value) {
                               if (value == 'edit') {
                                 _mostrarModalAgregarEditar(contacto: c);
                               } else if (value == 'delete') {
-                                _confirmarEliminar(id);
+                                _confirmarEliminar(c.id);
                               }
                             },
                             itemBuilder: (ctx) => const [
@@ -201,7 +179,7 @@ class EstadoVistaContactos extends State<VistaContactos> {
         backgroundColor: primaryColor,
         onPressed: () {
           if (_contactos.length >= 5) {
-            _mostrarSnack('Solo puedes registrar hasta 5 contactos de confianza.');
+            _snack('Solo puedes registrar hasta 5 contactos de confianza.');
           } else {
             _mostrarModalAgregarEditar();
           }
@@ -211,7 +189,7 @@ class EstadoVistaContactos extends State<VistaContactos> {
     );
   }
 
-  Widget _construirEstadoVacio() {
+  Widget _estadoVacio() {
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24.0),
@@ -236,20 +214,20 @@ class EstadoVistaContactos extends State<VistaContactos> {
 }
 
 // -------------------------------------------------------------
-// FORMULARIO DE AGREGAR / EDITAR CONTACTO
+// FORMULARIO DE AGREGAR / EDITAR CONTACTO (UI)
 // -------------------------------------------------------------
 class HojaAgregarEditarContacto extends StatefulWidget {
-  final Map<String, dynamic>? contacto;
+  final Contacto? contacto;
   final int corredorId;
   final String contrasenia;
-  final VoidCallback onSave;
+  final VoidCallback onSaved;
   final int totalContactos;
 
   const HojaAgregarEditarContacto({
     this.contacto,
     required this.corredorId,
     required this.contrasenia,
-    required this.onSave,
+    required this.onSaved,
     required this.totalContactos,
   });
 
@@ -267,9 +245,9 @@ class EstadoHojaAgregarEditarContacto extends State<HojaAgregarEditarContacto> {
   void initState() {
     super.initState();
     if (widget.contacto != null) {
-      nombreController.text = widget.contacto!['nombre'] ?? '';
-      telefonoController.text = widget.contacto!['telefono'] ?? '';
-      relacionController.text = widget.contacto!['relacion'] ?? '';
+      nombreController.text = widget.contacto!.nombre;
+      telefonoController.text = widget.contacto!.telefono;
+      relacionController.text = widget.contacto!.relacion == 'N/A' ? '' : widget.contacto!.relacion;
     }
   }
 
@@ -281,8 +259,8 @@ class EstadoHojaAgregarEditarContacto extends State<HojaAgregarEditarContacto> {
     super.dispose();
   }
 
-  Future<void> _guardarContacto() async {
-    // Revalida límite por si se quedó abierto el modal y el usuario añadió uno
+  Future<void> _guardar() async {
+    // Revalida límite por si se quedó abierto el modal
     if (widget.contacto == null && widget.totalContactos >= 5) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -293,7 +271,9 @@ class EstadoHojaAgregarEditarContacto extends State<HojaAgregarEditarContacto> {
 
     final nombre = nombreController.text.trim();
     final telefonoRaw = telefonoController.text.trim();
-    final relacion = relacionController.text.trim();
+    final relacion = (relacionController.text.trim().isEmpty)
+        ? 'N/A'
+        : relacionController.text.trim();
 
     if (nombre.isEmpty || telefonoRaw.isEmpty) {
       if (!mounted) return;
@@ -302,66 +282,40 @@ class EstadoHojaAgregarEditarContacto extends State<HojaAgregarEditarContacto> {
       return;
     }
 
-    // --- Normaliza el teléfono a solo dígitos ---
-    String telefonoDigits = telefonoRaw.replaceAll(RegExp(r'\D'), '');
-    // Casos comunes MX: 521xxxxxxxxxx (WhatsApp), 52xxxxxxxxxx
-    if (telefonoDigits.length == 13 && telefonoDigits.startsWith('521')) {
-      telefonoDigits = telefonoDigits.substring(3);
-    } else if (telefonoDigits.length == 12 && telefonoDigits.startsWith('52')) {
-      telefonoDigits = telefonoDigits.substring(2);
-    }
-
-    // Validación estricta MX: exactamente 10 dígitos
-    if (telefonoDigits.length != 10) {
+    final telefono10 = ContactosUC.normalizarTelefonoMx10(telefonoRaw);
+    if (telefono10.length != 10) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('El teléfono debe tener exactamente 10 dígitos.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El teléfono debe tener exactamente 10 dígitos.')),
+      );
       return;
     }
 
     setState(() => _guardando = true);
 
-    final body = <String, dynamic>{
-      'nombre': nombre,
-      'telefono': telefonoDigits,
-      'relacion': relacion.isEmpty ? 'N/A' : relacion,
-    };
-
-    final creando = widget.contacto == null;
-    final url = creando
-        ? Uri.parse('$_baseUrl/contactos')
-        : Uri.parse('$_baseUrl/contactos/${(widget.contacto!['contacto_id'] as num).toInt()}');
-
     try {
-      final resp = await (creando
-          ? http.post(
-              url,
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Corredor-Id': '${widget.corredorId}',
-                'X-Contrasenia': widget.contrasenia,
-              },
-              body: jsonEncode(body),
-            )
-          : http.put(
-              url,
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Corredor-Id': '${widget.corredorId}',
-                'X-Contrasenia': widget.contrasenia,
-              },
-              body: jsonEncode(body),
-            ));
+      if (widget.contacto == null) {
+        await ContactosUC.crear(
+          nombre: nombre,
+          telefono10: telefono10,
+          relacion: relacion,
+          corredorId: widget.corredorId,
+          contrasenia: widget.contrasenia,
+        );
+      } else {
+        await ContactosUC.actualizar(
+          contactoId: widget.contacto!.id,
+          nombre: nombre,
+          telefono10: telefono10,
+          relacion: relacion,
+          corredorId: widget.corredorId,
+          contrasenia: widget.contrasenia,
+        );
+      }
 
       if (!mounted) return;
-
-      if (resp.statusCode == 200 || resp.statusCode == 201) {
-        Navigator.of(context).pop();
-        widget.onSave();
-      } else {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error (${resp.statusCode}): ${resp.body}')));
-      }
+      Navigator.of(context).pop();
+      widget.onSaved();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -390,22 +344,22 @@ class EstadoHojaAgregarEditarContacto extends State<HojaAgregarEditarContacto> {
             ],
           ),
           const SizedBox(height: 20),
-          _construirCampoTexto('Nombre *', nombreController),
+          _campoTexto('Nombre *', nombreController),
           const SizedBox(height: 16),
-          _construirCampoTexto(
+          _campoTexto(
             'Teléfono *',
             telefonoController,
             keyboardType: TextInputType.phone,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           ),
           const SizedBox(height: 16),
-          _construirCampoTexto('Relación (opcional)', relacionController),
+          _campoTexto('Relación (opcional)', relacionController),
           const SizedBox(height: 24),
           SizedBox(
             width: double.infinity,
             height: 50,
             child: ElevatedButton(
-              onPressed: _guardando ? null : _guardarContacto,
+              onPressed: _guardando ? null : _guardar,
               style: ElevatedButton.styleFrom(
                 backgroundColor: primaryColor,
                 foregroundColor: Colors.black,
@@ -421,7 +375,7 @@ class EstadoHojaAgregarEditarContacto extends State<HojaAgregarEditarContacto> {
     );
   }
 
-  Widget _construirCampoTexto(
+  Widget _campoTexto(
     String etiqueta,
     TextEditingController controlador, {
     TextInputType? keyboardType,
