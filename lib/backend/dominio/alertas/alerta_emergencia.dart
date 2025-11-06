@@ -1,10 +1,11 @@
-// lib/usecases/emergency_alert_uc.dart
+// lib/backend/dominio/alertas/alerta_emergencia.dart
 import 'package:connectivity_plus/connectivity_plus.dart';
-import '../backend/core/session_repository.dart';
-import '../backend/data/api_service.dart';
-import '../backend/device/location_service.dart';
-import '../backend/device/sms_service.dart';
-import '../backend/core/app_events.dart';
+
+import '../../core/session_repository.dart';
+import '../../data/api_service.dart';
+import '../../device/location_service.dart';
+import '../../device/sms_service.dart';
+import '../../core/app_events.dart';
 
 class ResultadoAlertaEmergencia {
   final int? historialId;
@@ -16,19 +17,13 @@ class ResultadoAlertaEmergencia {
 }
 
 class CasoUsoAlertaEmergencia {
-  /// CU-1:
-  /// 1) Obtener contactos (o filtrar por ids)
-  /// 2) Permisos SMS/Teléfono
-  /// 3) Ubicación (best-effort)
-  /// 4) Mensaje (formato SRS)
-  /// 5) (si hay internet) POST /alertas/activar
-  /// 6) Enviar SMS a cada contacto
+
   static Future<ResultadoAlertaEmergencia> activarAlertaEmergencia({
     String? mensajeLibre,
     List<int>? soloContactoIds,
   }) async {
     // 1) Contactos
-    final contactos = await ServicioApi.getContactos(); // [{contacto_id, telefono, ...}]
+    final contactos = await ServicioApi.obtenerContactos(); // [{contacto_id, telefono, ...}]
     if (contactos.isEmpty) {
       throw Exception('No tienes contactos de confianza. Agrega al menos uno.');
     }

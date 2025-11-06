@@ -1,9 +1,13 @@
+// lib/screens/vista_alerta.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
+
 import '../main.dart';
 import 'vista_historial.dart';
 import 'vista_ubicacion.dart';
-import 'vista_alerta_emergencia.dart';
+
+// ✅ Nuevo import (backend dominio)
+import '../backend/dominio/alertas/alerta_emergencia.dart';
 
 class VistaAlerta extends StatefulWidget {
   const VistaAlerta({super.key});
