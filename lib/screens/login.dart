@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-import '../core/session_repository.dart';
-import '../data/api_service.dart';
+import '../backend/core/session_repository.dart';
+import '../backend/data/api_service.dart';
 import '../main.dart'; // Colores y MainScreen
 
 class PantallaAutenticacion extends StatefulWidget {
@@ -188,10 +188,10 @@ class VistaRegistro extends StatefulWidget {
   const VistaRegistro({required this.onToggle});
 
   @override
-  State<VistaRegistro> createState() => _EstadoVistaRegistro();
+  State<VistaRegistro> createState() => EstadoVistaRegistro();
 }
 
-class _EstadoVistaRegistro extends State<VistaRegistro> {
+class EstadoVistaRegistro extends State<VistaRegistro> {
   final nombreController = TextEditingController();
   final correoController = TextEditingController();
   final contraseniaController = TextEditingController();

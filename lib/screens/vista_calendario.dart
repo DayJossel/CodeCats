@@ -11,7 +11,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'vista_estadistica.dart';
 
 import '../main.dart';
-import '../core/notification_service.dart'; // Usaremos ServicioNotificaciones (alias)
+import '../backend/core/notification_service.dart'; // Usaremos ServicioNotificaciones (alias)
 
 const String _baseUrl = 'http://157.137.187.110:8000';
 
@@ -114,10 +114,10 @@ class VistaCalendario extends StatefulWidget {
   const VistaCalendario({super.key});
 
   @override
-  State<VistaCalendario> createState() => _EstadoVistaCalendario();
+  State<VistaCalendario> createState() => EstadoVistaCalendario();
 }
 
-class _EstadoVistaCalendario extends State<VistaCalendario> {
+class EstadoVistaCalendario extends State<VistaCalendario> {
   final List<Carrera> _carreras = [];
   late DateTime _diaEnfocado;
   late DateTime _diaSeleccionado;
@@ -658,7 +658,7 @@ class _EstadoVistaCalendario extends State<VistaCalendario> {
       itemCount: eventos.length,
       itemBuilder: (context, index) {
         final c = eventos[index];
-        return _TarjetaCarrera(
+        return TarjetaCarrera(
           carrera: c,
           onEstadoCambiado: (nuevo) => _actualizarEstado(c, nuevo),
           onEditar: () => _mostrarFormulario(carrera: c),
@@ -691,7 +691,7 @@ class _EstadoVistaCalendario extends State<VistaCalendario> {
           top: false,
           child: SingleChildScrollView(
             padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom + 16),
-            child: _HojaAgregarEditarCarrera(
+            child: HojaAgregarEditarCarrera(
               onSave: (titulo, fechaHora, estado) =>
                   _guardarCarrera(titulo, fechaHora, estado, existente: carrera),
               carrera: carrera,
@@ -704,13 +704,13 @@ class _EstadoVistaCalendario extends State<VistaCalendario> {
   }
 }
 
-class _TarjetaCarrera extends StatelessWidget {
+class TarjetaCarrera extends StatelessWidget {
   final Carrera carrera;
   final Function(EstadoCarrera) onEstadoCambiado;
   final VoidCallback onEditar;
   final VoidCallback onEliminar;
 
-  const _TarjetaCarrera({
+  const TarjetaCarrera({
     required this.carrera,
     required this.onEstadoCambiado,
     required this.onEditar,
@@ -818,18 +818,18 @@ class _TarjetaCarrera extends StatelessWidget {
 }
 
 // --- Formulario agregar/editar ---
-class _HojaAgregarEditarCarrera extends StatefulWidget {
+class HojaAgregarEditarCarrera extends StatefulWidget {
   final Function(String titulo, DateTime fechaHora, EstadoCarrera estado) onSave;
   final Carrera? carrera;
   final DateTime? diaSeleccionado;
 
-  const _HojaAgregarEditarCarrera({required this.onSave, this.carrera, this.diaSeleccionado});
+  const HojaAgregarEditarCarrera({required this.onSave, this.carrera, this.diaSeleccionado});
 
   @override
-  State<_HojaAgregarEditarCarrera> createState() => _EstadoHojaAgregarEditarCarrera();
+  State<HojaAgregarEditarCarrera> createState() => EstadoHojaAgregarEditarCarrera();
 }
 
-class _EstadoHojaAgregarEditarCarrera extends State<_HojaAgregarEditarCarrera> {
+class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
   final _ctrlTitulo = TextEditingController();
   DateTime? _fecha;
   TimeOfDay? _hora;

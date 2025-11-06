@@ -12,10 +12,10 @@ class VistaContactos extends StatefulWidget {
   const VistaContactos({super.key});
 
   @override
-  State<VistaContactos> createState() => _EstadoVistaContactos();
+  State<VistaContactos> createState() => EstadoVistaContactos();
 }
 
-class _EstadoVistaContactos extends State<VistaContactos> {
+class EstadoVistaContactos extends State<VistaContactos> {
   List<Map<String, dynamic>> _contactos = [];
   bool _cargando = false;
   int? corredorId;
@@ -109,7 +109,7 @@ class _EstadoVistaContactos extends State<VistaContactos> {
       builder: (context) {
         return Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: _HojaAgregarEditarContacto(
+          child: HojaAgregarEditarContacto(
             contacto: contacto,
             corredorId: corredorId!,
             contrasenia: contrasenia!,
@@ -238,14 +238,14 @@ class _EstadoVistaContactos extends State<VistaContactos> {
 // -------------------------------------------------------------
 // FORMULARIO DE AGREGAR / EDITAR CONTACTO
 // -------------------------------------------------------------
-class _HojaAgregarEditarContacto extends StatefulWidget {
+class HojaAgregarEditarContacto extends StatefulWidget {
   final Map<String, dynamic>? contacto;
   final int corredorId;
   final String contrasenia;
   final VoidCallback onSave;
   final int totalContactos;
 
-  const _HojaAgregarEditarContacto({
+  const HojaAgregarEditarContacto({
     this.contacto,
     required this.corredorId,
     required this.contrasenia,
@@ -254,10 +254,10 @@ class _HojaAgregarEditarContacto extends StatefulWidget {
   });
 
   @override
-  State<_HojaAgregarEditarContacto> createState() => _EstadoHojaAgregarEditarContacto();
+  State<HojaAgregarEditarContacto> createState() => EstadoHojaAgregarEditarContacto();
 }
 
-class _EstadoHojaAgregarEditarContacto extends State<_HojaAgregarEditarContacto> {
+class EstadoHojaAgregarEditarContacto extends State<HojaAgregarEditarContacto> {
   final nombreController = TextEditingController();
   final telefonoController = TextEditingController();
   final relacionController = TextEditingController();

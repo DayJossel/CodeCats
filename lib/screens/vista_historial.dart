@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
-import '../data/api_service.dart';
-import '../core/app_events.dart';
+import '../backend/data/api_service.dart';
+import '../backend/core/app_events.dart';
 
 class VistaHistorial extends StatefulWidget {
   const VistaHistorial({super.key});
 
   @override
-  State<VistaHistorial> createState() => _EstadoVistaHistorial();
+  State<VistaHistorial> createState() => EstadoVistaHistorial();
 }
 
-class _EstadoVistaHistorial extends State<VistaHistorial> {
+class EstadoVistaHistorial extends State<VistaHistorial> {
   bool _cargando = true;
   String? _error;
   List<Map<String, dynamic>> _items = [];
@@ -74,7 +74,7 @@ class _EstadoVistaHistorial extends State<VistaHistorial> {
     final body = _cargando
         ? const Center(child: CircularProgressIndicator())
         : (_items.isEmpty
-            ? _EstadoVacio(onReload: _recargar)
+            ? EstadoVacio(onReload: _recargar)
             : RefreshIndicator(
                 onRefresh: _recargar,
                 child: ListView.separated(
@@ -118,15 +118,15 @@ class _EstadoVistaHistorial extends State<VistaHistorial> {
         ],
       ),
       body: SafeArea(
-        child: _error != null ? _EstadoError(message: _error!, onRetry: _recargar) : body,
+        child: _error != null ? EstadoError(message: _error!, onRetry: _recargar) : body,
       ),
     );
   }
 }
 
-class _EstadoVacio extends StatelessWidget {
+class EstadoVacio extends StatelessWidget {
   final Future<void> Function() onReload;
-  const _EstadoVacio({required this.onReload});
+  const EstadoVacio({required this.onReload});
 
   @override
   Widget build(BuildContext context) {
@@ -160,10 +160,10 @@ class _EstadoVacio extends StatelessWidget {
   }
 }
 
-class _EstadoError extends StatelessWidget {
+class EstadoError extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
-  const _EstadoError({required this.message, required this.onRetry});
+  const EstadoError({required this.message, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {

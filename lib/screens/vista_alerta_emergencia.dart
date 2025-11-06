@@ -1,10 +1,10 @@
 // lib/usecases/emergency_alert_uc.dart
 import 'package:connectivity_plus/connectivity_plus.dart';
-import '../core/session_repository.dart';
-import '../data/api_service.dart';
-import '../device/location_service.dart';
-import '../device/sms_service.dart';
-import '../core/app_events.dart';
+import '../backend/core/session_repository.dart';
+import '../backend/data/api_service.dart';
+import '../backend/device/location_service.dart';
+import '../backend/device/sms_service.dart';
+import '../backend/core/app_events.dart';
 
 class ResultadoAlertaEmergencia {
   final int? historialId;

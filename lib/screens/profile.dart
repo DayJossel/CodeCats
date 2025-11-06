@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
-import '../core/session_repository.dart';
+import '../backend/core/session_repository.dart';
 
 class PantallaPerfil extends StatefulWidget {
   const PantallaPerfil({super.key});

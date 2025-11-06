@@ -17,10 +17,10 @@ class VistaEstadistica extends StatefulWidget {
   const VistaEstadistica({super.key, required this.year, required this.month});
 
   @override
-  State<VistaEstadistica> createState() => _EstadoVistaEstadistica();
+  State<VistaEstadistica> createState() => EstadoVistaEstadistica();
 }
 
-class _EstadoVistaEstadistica extends State<VistaEstadistica> {
+class EstadoVistaEstadistica extends State<VistaEstadistica> {
   int anio = 0;
   int mes = 0;
 
@@ -239,15 +239,15 @@ class _EstadoVistaEstadistica extends State<VistaEstadistica> {
                       child: Text(_error!, style: const TextStyle(color: Colors.orange)),
                     ),
                   const SizedBox(height: 12),
-                  _FichaEstadistica(etiqueta: 'Objetivo mensual', valor: objetivo?.toString() ?? 'No registrado'),
+                  FichaEstadistica(etiqueta: 'Objetivo mensual', valor: objetivo?.toString() ?? 'No registrado'),
                   const SizedBox(height: 8),
-                  _FichaEstadistica(etiqueta: 'Total programadas', valor: '$total'),
+                  FichaEstadistica(etiqueta: 'Total programadas', valor: '$total'),
                   const SizedBox(height: 8),
-                  _FichaEstadistica(etiqueta: 'Hechas', valor: '$hechas'),
+                  FichaEstadistica(etiqueta: 'Hechas', valor: '$hechas'),
                   const SizedBox(height: 8),
-                  _FichaEstadistica(etiqueta: 'No realizadas', valor: '$noRealizadas'),
+                  FichaEstadistica(etiqueta: 'No realizadas', valor: '$noRealizadas'),
                   const SizedBox(height: 8),
-                  _FichaEstadistica(etiqueta: 'Pendientes', valor: '$pendientes'),
+                  FichaEstadistica(etiqueta: 'Pendientes', valor: '$pendientes'),
                   const SizedBox(height: 16),
                   if (cumple != null)
                     Row(
@@ -288,10 +288,10 @@ class _EstadoVistaEstadistica extends State<VistaEstadistica> {
   }
 }
 
-class _FichaEstadistica extends StatelessWidget {
+class FichaEstadistica extends StatelessWidget {
   final String etiqueta;
   final String valor;
-  const _FichaEstadistica({required this.etiqueta, required this.valor});
+  const FichaEstadistica({required this.etiqueta, required this.valor});
 
   @override
   Widget build(BuildContext context) {

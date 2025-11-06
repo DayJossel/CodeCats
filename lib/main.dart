@@ -1,8 +1,8 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 
-import 'core/session_repository.dart';
-import 'core/notification_service.dart';
+import 'backend/core/session_repository.dart';
+import 'backend/core/notification_service.dart';
 
 import 'screens/login.dart';
 import 'screens/profile.dart';

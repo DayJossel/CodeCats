@@ -16,7 +16,7 @@ class PantallaDetalleMapa extends StatefulWidget {
   });
 
   @override
-  State<PantallaDetalleMapa> createState() => _EstadoPantallaDetalleMapa();
+  State<PantallaDetalleMapa> createState() => EstadoPantallaDetalleMapa();
 }
 
 // 👇 Compat: si en otro lado siguen usando MapDetailScreen, no se rompe
@@ -33,7 +33,7 @@ class MapDetailScreen extends PantallaDetalleMapa {
         );
 }
 
-class _EstadoPantallaDetalleMapa extends State<PantallaDetalleMapa> {
+class EstadoPantallaDetalleMapa extends State<PantallaDetalleMapa> {
   late LatLng _posicion;
   GoogleMapController? _controladorMapa;
   bool _tienePermisoUbicacion = false;

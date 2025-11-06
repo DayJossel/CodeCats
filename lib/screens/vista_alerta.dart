@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../main.dart';
 import 'vista_historial.dart';
 import 'vista_ubicacion.dart';
-import '../usecases/emergency_alert_uc.dart';
+import 'vista_alerta_emergencia.dart';
 
 class VistaAlerta extends StatefulWidget {
   const VistaAlerta({super.key});

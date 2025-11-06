@@ -5,7 +5,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
-import '../core/session_repository.dart';
+import '../backend/core/session_repository.dart';
 import '../main.dart';
 
 // =============== CONFIG API ===============

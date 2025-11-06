@@ -2,10 +2,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../main.dart'; // Colores (backgroundColor, primaryColor, cardColor)
-import '../data/api_service.dart';
-import '../core/session_repository.dart';
-import '../device/location_service.dart';
-import '../device/sms_service.dart';
+import '../backend/data/api_service.dart';
+import '../backend/core/session_repository.dart';
+import '../backend/device/location_service.dart';
+import '../backend/device/sms_service.dart';
 
 /// View-model para pintar contactos en esta vista
 class ContactoVm {
