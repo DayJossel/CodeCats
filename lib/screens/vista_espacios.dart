@@ -144,9 +144,9 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
       await EspaciosUC.actualizarNota(e.espacioId!, nota);
       _snack('Nota actualizada.');
     } catch (err) {
-      // revertir
+      // revertir (por si quieres usar respaldo)
       final nota = e.notas[idx];
-      setState(() => nota.contenido = nota.contenido); // no-op visual
+      setState(() => nota.contenido = nota.contenido);
       _snack(err.toString(), error: true);
     }
   }
@@ -182,11 +182,17 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: _HojaAgregarEspacio(onAddSpace: _agregarEspacio),
-      ),
+      builder: (ctx) {
+        final insets = MediaQuery.of(ctx).viewInsets;
+        return AnimatedPadding(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.only(bottom: insets.bottom),
+          child: _HojaAgregarEspacio(onAddSpace: _agregarEspacio),
+        );
+      },
     );
   }
 
@@ -198,13 +204,19 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: _HojaNota(
-          onSave: (t) => _agregarNota(e, t),
-        ),
-      ),
+      builder: (ctx) {
+        final insets = MediaQuery.of(ctx).viewInsets;
+        return AnimatedPadding(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.only(bottom: insets.bottom),
+          child: _HojaNota(
+            onSave: (t) => _agregarNota(e, t),
+          ),
+        );
+      },
     );
   }
 
@@ -213,14 +225,20 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-        child: _HojaNota(
-          notaInicial: nota.contenido,
-          onSave: (t) => _editarNota(e, idx, t),
-        ),
-      ),
+      builder: (ctx) {
+        final insets = MediaQuery.of(ctx).viewInsets;
+        return AnimatedPadding(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.only(bottom: insets.bottom),
+          child: _HojaNota(
+            notaInicial: nota.contenido,
+            onSave: (t) => _editarNota(e, idx, t),
+          ),
+        );
+      },
     );
   }
 
@@ -325,52 +343,61 @@ class _EstadoHojaAgregarEspacio extends State<_HojaAgregarEspacio> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
-      decoration: const BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
-      ),
-      child: Form(
-        key: _formKey,
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text('Agregar Nuevo Espacio',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-              IconButton(
-                icon: const Icon(Icons.close, color: Colors.grey),
-                onPressed: _saving ? null : () => Navigator.of(context).pop(),
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: EdgeInsets.only(
+          left: 24, right: 24, top: 24,
+          bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+          ),
+          child: Form(
+            key: _formKey,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Agregar Nuevo Espacio',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.grey),
+                    onPressed: _saving ? null : () => Navigator.of(context).pop(),
+                  ),
+                ],
               ),
-            ],
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _ctrlNombre,
+                decoration: const InputDecoration(labelText: 'Nombre del espacio *'),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Ingresa un nombre.' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _ctrlEnlace,
+                decoration: const InputDecoration(
+                  labelText: 'Link del espacio *',
+                  hintText: 'https://maps.app.goo.gl/… / https://maps.google.com/… / o lat,lng',
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Ingresa un link.' : null,
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity, height: 48,
+                child: ElevatedButton(
+                  onPressed: _saving ? null : _submit,
+                  child: _saving
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Agregar Espacio'),
+                ),
+              ),
+            ]),
           ),
-          const SizedBox(height: 16),
-          TextFormField(
-            controller: _ctrlNombre,
-            decoration: const InputDecoration(labelText: 'Nombre del espacio *'),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Ingresa un nombre.' : null,
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: _ctrlEnlace,
-            decoration: const InputDecoration(
-              labelText: 'Link del espacio *',
-              hintText: 'https://maps.app.goo.gl/… / https://maps.google.com/… / o lat,lng',
-            ),
-            validator: (v) => (v == null || v.trim().isEmpty) ? 'Ingresa un link.' : null,
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity, height: 48,
-            child: ElevatedButton(
-              onPressed: _saving ? null : _submit,
-              child: _saving
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Text('Agregar Espacio'),
-            ),
-          ),
-        ]),
+        ),
       ),
     );
   }
@@ -397,26 +424,44 @@ class _EstadoHojaNota extends State<_HojaNota> {
   @override
   Widget build(BuildContext context) {
     final editando = widget.notaInicial != null;
-    return Container(
-      padding: const EdgeInsets.all(24.0),
-      decoration: const BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: EdgeInsets.only(
+          left: 24, right: 24, top: 24,
+          // este padding extra garantiza que el contenido quede por encima del teclado
+          bottom: 24 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: cardColor,
+            borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(editando ? '   Editar Nota' : '   Agregar Nota Nueva',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _ctrl,
+              autofocus: true,
+              keyboardType: TextInputType.multiline,
+              minLines: 4,
+              maxLines: null, // que crezca y permita scroll si es necesario
+              decoration: const InputDecoration(
+                hintText: 'Escribe tus notas aquí...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity, height: 48,
+              child: ElevatedButton(onPressed: _submit, child: const Text('Guardar Nota')),
+            ),
+          ]),
+        ),
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(editando ? 'Editar Nota' : 'Agregar Nota Nueva',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _ctrl, maxLines: 4, autofocus: true,
-          decoration: const InputDecoration(hintText: 'Escribe tus notas aquí...', border: OutlineInputBorder()),
-        ),
-        const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity, height: 48,
-          child: ElevatedButton(onPressed: _submit, child: const Text('Guardar Nota')),
-        ),
-      ]),
     );
   }
 }

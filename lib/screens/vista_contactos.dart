@@ -128,53 +128,54 @@ class EstadoVistaContactos extends State<VistaContactos> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_usuarioCargado) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator(color: primaryColor)),
-      );
-    }
-
     return Scaffold(
-      body: _cargando
+      appBar: AppBar(
+        title: const Text('Contactos'),
+        backgroundColor: backgroundColor,
+        elevation: 0,
+      ),
+      body: !_usuarioCargado
           ? const Center(child: CircularProgressIndicator(color: primaryColor))
-          : _contactos.isEmpty
-              ? _estadoVacio()
-              : RefreshIndicator(
-                  onRefresh: _listarContactos,
-                  color: primaryColor,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _contactos.length,
-                    itemBuilder: (context, index) {
-                      final c = _contactos[index];
-                      return Card(
-                        color: cardColor,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: ListTile(
-                          leading: const CircleAvatar(
-                            backgroundColor: primaryColor,
-                            child: Icon(Icons.person, color: Colors.black),
-                          ),
-                          title: Text(c.nombre),
-                          subtitle: Text("${c.relacion} • ${c.telefono}"),
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (value) {
-                              if (value == 'edit') {
-                                _mostrarModalAgregarEditar(contacto: c);
-                              } else if (value == 'delete') {
-                                _confirmarEliminar(c.id);
-                              }
-                            },
-                            itemBuilder: (ctx) => const [
-                              PopupMenuItem(value: 'edit', child: Text('Editar')),
-                              PopupMenuItem(value: 'delete', child: Text('Eliminar')),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
+          : _cargando
+              ? const Center(child: CircularProgressIndicator(color: primaryColor))
+              : _contactos.isEmpty
+                  ? _estadoVacio()
+                  : RefreshIndicator(
+                      onRefresh: _listarContactos,
+                      color: primaryColor,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _contactos.length,
+                        itemBuilder: (context, index) {
+                          final c = _contactos[index];
+                          return Card(
+                            color: cardColor,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            child: ListTile(
+                              leading: const CircleAvatar(
+                                backgroundColor: primaryColor,
+                                child: Icon(Icons.person, color: Colors.black),
+                              ),
+                              title: Text(c.nombre),
+                              subtitle: Text("${c.relacion} • ${c.telefono}"),
+                              trailing: PopupMenuButton<String>(
+                                onSelected: (value) {
+                                  if (value == 'edit') {
+                                    _mostrarModalAgregarEditar(contacto: c);
+                                  } else if (value == 'delete') {
+                                    _confirmarEliminar(c.id);
+                                  }
+                                },
+                                itemBuilder: (ctx) => const [
+                                  PopupMenuItem(value: 'edit', child: Text('Editar')),
+                                  PopupMenuItem(value: 'delete', child: Text('Eliminar')),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: primaryColor,
         onPressed: () {
