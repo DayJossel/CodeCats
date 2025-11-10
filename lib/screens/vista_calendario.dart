@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
+import 'package:intl/date_symbol_data_local.dart'; // ← para localización
 
 import '../main.dart';
 import 'vista_estadistica.dart';
@@ -48,6 +49,9 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
   }
 
   Future<void> _bootstrap() async {
+    // Inicializar símbolos de fecha en español (por si el MaterialApp no fuerza es_ES)
+    try { await initializeDateFormatting('es'); } catch (_) {}
+
     // 1) Cargar caché local
     final local = await _uc.cargarDesdeDisco();
     _carreras
@@ -56,7 +60,7 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
     _eventos = _uc.agruparEventos(_carreras);
     if (mounted) setState(() {});
 
-    // 2) Cargar credenciales (FIX de nombres)
+    // 2) Cargar credenciales
     corredorId = await RepositorioSesion.obtenerCorredorId();
     contrasenia = await RepositorioSesion.obtenerContrasenia();
     _usuarioCargado = true;
@@ -162,30 +166,39 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
         title: const Text('Calendario de Carreras'),
         backgroundColor: backgroundColor,
         elevation: 0,
-        actions: [
-          IconButton(
-            tooltip: 'Ver estadísticas del mes',
-            icon: const Icon(Icons.bar_chart),
-            onPressed: () {
-              final y = _diaEnfocado.year;
-              final m = _diaEnfocado.month;
-              Navigator.of(context).push(MaterialPageRoute(builder: (_) => VistaEstadistica(year: y, month: m)));
-            },
-          ),
-        ],
       ),
       body: _cargando
           ? const Center(child: CircularProgressIndicator(color: primaryColor))
           : Column(
               children: [
                 _construirCalendario(),
+                // Botón amarillo de "Consultar Estadísticas"
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.bar_chart),
+                      label: const Text('Consultar Estadísticas'),
+                      onPressed: () {
+                        final y = _diaEnfocado.year;
+                        final m = _diaEnfocado.month;
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => VistaEstadistica(year: y, month: m)),
+                        );
+                      },
+                    ),
+                  ),
+                ),
                 const Divider(height: 1),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
                   child: Row(
                     children: [
-                      Text("Carreras del día",
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+                      Text(
+                        "Carreras del día",
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                      ),
                       const Spacer(),
                       IconButton(
                         tooltip: 'Nueva carrera',
@@ -202,7 +215,6 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
                 ),
               ],
             ),
-      // ⛔️ FAB eliminado (antes estaba aquí)
     );
   }
 
@@ -210,6 +222,7 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
 
   Widget _construirCalendario() {
     return TableCalendar<Carrera>(
+      locale: 'es', // ← días y meses en español
       firstDay: DateTime.utc(2020, 1, 1),
       lastDay: DateTime.utc(2030, 12, 31),
       focusedDay: _diaEnfocado,
@@ -223,7 +236,10 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
         selectedDecoration: const BoxDecoration(color: primaryColor, shape: BoxShape.circle),
         markerDecoration: const BoxDecoration(color: accentColor, shape: BoxShape.circle),
       ),
-      headerStyle: const HeaderStyle(formatButtonVisible: false, titleCentered: true),
+      headerStyle: const HeaderStyle(
+        formatButtonVisible: false,
+        titleCentered: true,
+      ),
       onDaySelected: (selectedDay, focusedDay) {
         if (!isSameDay(_diaSeleccionado, selectedDay)) {
           setState(() {
@@ -243,8 +259,7 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
   }
 
   Widget _construirListaEventos(List<Carrera> eventos) {
-    final extraBottom = MediaQuery.of(context).padding.bottom + 80;
-
+    final extraBottom = MediaQuery.of(context).padding.bottom + 24; // sin FAB, padding discreto
     return ListView.builder(
       padding: EdgeInsets.fromLTRB(16, 0, 16, extraBottom),
       itemCount: eventos.length,
@@ -265,7 +280,7 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24.0),
         child: Text(
-          "No hay carreras programadas.\nToca un día o el botón + para agregar una.",
+          "No hay carreras programadas.\nToca un día para agregar una.",
           textAlign: TextAlign.center,
           style: TextStyle(color: Colors.grey[400]),
         ),
@@ -304,11 +319,12 @@ class EstadoVistaCalendario extends State<VistaCalendario> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancelar")),
           TextButton(
-              onPressed: () async {
-                Navigator.pop(ctx);
-                await _eliminarCarrera(c);
-              },
-              child: const Text("Eliminar", style: TextStyle(color: Colors.red))),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _eliminarCarrera(c);
+            },
+            child: const Text("Eliminar", style: TextStyle(color: Colors.red)),
+          ),
         ],
       ),
     );
@@ -350,11 +366,14 @@ class TarjetaCarrera extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(carrera.titulo,
-                          style:
-                              const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                      Text(_formatearHora(TimeOfDay.fromDateTime(carrera.fechaHora)),
-                          style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                      Text(
+                        carrera.titulo,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      Text(
+                        _formatearHora(TimeOfDay.fromDateTime(carrera.fechaHora)),
+                        style: const TextStyle(color: Colors.grey, fontSize: 14),
+                      ),
                     ],
                   ),
                 ),
@@ -486,10 +505,7 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
                 children: [
                   TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancelar')),
                   TextButton(
-                    onPressed: () {
-                      setState(() => _hora = tmp);
-                      Navigator.of(ctx).pop();
-                    },
+                    onPressed: () { setState(() => _hora = tmp); Navigator.of(ctx).pop(); },
                     child: const Text('Guardar', style: TextStyle(fontWeight: FontWeight.bold)),
                   ),
                 ],
@@ -499,9 +515,7 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
               child: CupertinoDatePicker(
                 mode: CupertinoDatePickerMode.time,
                 initialDateTime: DateTime(
-                  DateTime.now().year,
-                  DateTime.now().month,
-                  DateTime.now().day,
+                  DateTime.now().year, DateTime.now().month, DateTime.now().day,
                   _hora?.hour ?? TimeOfDay.now().hour,
                   _hora?.minute ?? TimeOfDay.now().minute,
                 ),
@@ -524,8 +538,7 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
       );
       return;
     }
-    final full =
-        DateTime(_fecha!.year, _fecha!.month, _fecha!.day, _hora!.hour, _hora!.minute);
+    final full = DateTime(_fecha!.year, _fecha!.month, _fecha!.day, _hora!.hour, _hora!.minute);
     widget.onSave(titulo, full, _estado);
     Navigator.of(context).pop();
   }
@@ -536,12 +549,10 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
       padding: const EdgeInsets.all(24.0),
       decoration: const BoxDecoration(
         color: cardColor,
-        borderRadius:
-            BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+        borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(widget.carrera == null ? 'Programar Carrera' : 'Editar Carrera',
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
@@ -556,12 +567,8 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
           const SizedBox(height: 16),
           DropdownButtonFormField<EstadoCarrera>(
             value: _estado,
-            onChanged: (EstadoCarrera? v) {
-              if (v != null) setState(() => _estado = v);
-            },
-            items: EstadoCarrera.values
-                .map((e) => DropdownMenuItem(value: e, child: Text(_estadoATexto(e))))
-                .toList(),
+            onChanged: (EstadoCarrera? v) { if (v != null) setState(() => _estado = v); },
+            items: EstadoCarrera.values.map((e) => DropdownMenuItem(value: e, child: Text(_estadoATexto(e)))).toList(),
             decoration: const InputDecoration(labelText: 'Estado'),
             dropdownColor: cardColor,
           ),
@@ -574,8 +581,7 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
                   child: InputDecorator(
                     decoration: const InputDecoration(labelText: 'Fecha'),
                     child: Text(
-                      _fecha == null
-                          ? 'Seleccionar'
+                      _fecha == null ? 'Seleccionar'
                           : '${_fecha!.day}/${_fecha!.month}/${_fecha!.year}',
                       style: const TextStyle(color: Colors.white),
                     ),
@@ -609,12 +615,9 @@ class EstadoHojaAgregarEditarCarrera extends State<HojaAgregarEditarCarrera> {
 
   String _estadoATexto(EstadoCarrera e) {
     switch (e) {
-      case EstadoCarrera.pendiente:
-        return 'Pendiente';
-      case EstadoCarrera.hecha:
-        return 'Hecha';
-      case EstadoCarrera.noRealizada:
-        return 'No Realizada';
+      case EstadoCarrera.pendiente: return 'Pendiente';
+      case EstadoCarrera.hecha: return 'Hecha';
+      case EstadoCarrera.noRealizada: return 'No Realizada';
     }
   }
 }
