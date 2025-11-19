@@ -10,6 +10,7 @@ import 'screens/vista_alerta.dart';
 import 'screens/vista_contactos.dart';
 import 'screens/vista_espacios.dart';
 import 'screens/vista_calendario.dart';
+import 'screens/vista_timer.dart';
 
 // Colores principales de la aplicación
 const Color primaryColor = Color(0xFFFFC700);     // Amarillo/Dorado
@@ -100,11 +101,14 @@ class _EstadoPantallaPrincipal extends State<PantallaPrincipal> {
     const VistaEspacios(),
     const VistaContactos(),
     const VistaCalendario(),
+    const VistaTimer(),      // 🔹 Nuevo tab: Temporizador
     const ProfileScreen(),
   ];
 
   void _alTocarItem(int indice) {
-    if (indice == 4) {
+    // Mantengo el mismo comportamiento especial para Perfil,
+    // ahora movido al índice 5.
+    if (indice == 5) {
       return;
     }
     setState(() => _indiceSeleccionado = indice);
@@ -120,6 +124,7 @@ class _EstadoPantallaPrincipal extends State<PantallaPrincipal> {
           BottomNavigationBarItem(icon: Icon(Icons.route), label: 'Espacios'),
           BottomNavigationBarItem(icon: Icon(Icons.people_outline), label: 'Contactos'),
           BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Calendario'),
+          BottomNavigationBarItem(icon: Icon(Icons.timer_outlined), label: 'Timer'), // 🔹 Nuevo ítem
           BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
         ],
         currentIndex: _indiceSeleccionado,
