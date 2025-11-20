@@ -4,7 +4,7 @@ import 'package:chita_app/screens/map_detail.dart';
 
 import '../main.dart';
 import '../backend/dominio/espacios.dart';
-import '../backend/dominio/modelos/espacio.dart';
+import '../backend/dominio/modelos/espacio.dart'; // Importa SeguridadEspacio y Espacio
 
 // --- mapping nombre -> asset (solo UI)
 String _assetParaTituloEspacio(String nombre) {
@@ -24,6 +24,26 @@ String _assetParaTituloEspacio(String nombre) {
   }
 }
 
+// Nuevo enum para el filtro de notas
+enum _FiltroNotas { todos, conNotas, sinNotas }
+
+// Clase auxiliar estática para las propiedades del semáforo
+class _SemaforoHelpers {
+  static String etiqueta(SeguridadEspacio s) => switch (s) {
+        SeguridadEspacio.inseguro => 'Inseguro',
+        SeguridadEspacio.parcialmenteSeguro => 'Parcialmente Seguro',
+        SeguridadEspacio.seguro => 'Seguro',
+        SeguridadEspacio.ninguno => 'Sin calificar',
+      };
+
+  static Color color(SeguridadEspacio s) => switch (s) {
+        SeguridadEspacio.inseguro => Colors.redAccent,
+        SeguridadEspacio.parcialmenteSeguro => Colors.orangeAccent,
+        SeguridadEspacio.seguro => Colors.greenAccent,
+        SeguridadEspacio.ninguno => Colors.grey,
+      };
+}
+
 class VistaEspacios extends StatefulWidget {
   const VistaEspacios({super.key});
   @override
@@ -33,6 +53,11 @@ class VistaEspacios extends StatefulWidget {
 class _EstadoVistaEspacios extends State<VistaEspacios> {
   final List<Espacio> _espacios = [];
   bool _cargando = false;
+  
+  // --- ESTADOS DE FILTRO ---
+  Set<SeguridadEspacio> _filtrosSemaforo = {}; 
+  _FiltroNotas _filtroNotas = _FiltroNotas.todos;
+  // --------------------------------
 
   @override
   void initState() {
@@ -77,6 +102,28 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
       if (mounted) setState(() => _cargando = false);
     }
   }
+
+  // --- MÉTODO DE FILTRADO ---
+  List<Espacio> _aplicarFiltros(List<Espacio> listaOriginal) {
+    return listaOriginal.where((e) {
+      // 1. Filtro por Semáforo
+      bool pasaFiltroSemaforo = true;
+      if (_filtrosSemaforo.isNotEmpty) {
+        pasaFiltroSemaforo = _filtrosSemaforo.contains(e.semaforo);
+      }
+
+      // 2. Filtro por Notas
+      bool pasaFiltroNotas = true;
+      if (_filtroNotas == _FiltroNotas.conNotas) {
+        pasaFiltroNotas = e.notas.isNotEmpty;
+      } else if (_filtroNotas == _FiltroNotas.sinNotas) {
+        pasaFiltroNotas = e.notas.isEmpty;
+      }
+
+      return pasaFiltroSemaforo && pasaFiltroNotas;
+    }).toList();
+  }
+  // --------------------------------
 
   Future<void> _agregarEspacio(String nombre, String? enlace) async {
     try {
@@ -139,14 +186,12 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
     try {
       if (e.espacioId == null) return;
       final nota = e.notas[idx];
-      final respaldo = nota.contenido;
       setState(() => nota.contenido = contenido.trim());
       await EspaciosUC.actualizarNota(e.espacioId!, nota);
       _snack('Nota actualizada.');
     } catch (err) {
-      // revertir (por si quieres usar respaldo)
       final nota = e.notas[idx];
-      setState(() => nota.contenido = nota.contenido);
+      setState(() => nota.contenido = nota.contenido); // Revertir en caso de error
       _snack(err.toString(), error: true);
     }
   }
@@ -194,6 +239,28 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
         );
       },
     );
+  }
+
+  void _abrirModalFiltros() async {
+    final resultado = await showModalBottomSheet<(Set<SeguridadEspacio>, _FiltroNotas)?>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return _HojaFiltros(
+          initialSemaforo: _filtrosSemaforo,
+          initialNotas: _filtroNotas,
+        );
+      },
+    );
+
+    if (resultado != null) {
+      setState(() {
+        _filtrosSemaforo = resultado.$1;
+        _filtroNotas = resultado.$2;
+      });
+    }
   }
 
   void _abrirModalNotaNueva(Espacio e) {
@@ -244,7 +311,9 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
 
   @override
   Widget build(BuildContext context) {
-    final lista = _espacios;
+    final listaFiltrada = _aplicarFiltros(_espacios); // Usar la lista filtrada
+    final hayFiltrosActivos = _filtrosSemaforo.isNotEmpty || _filtroNotas != _FiltroNotas.todos;
+
     return Scaffold(
       body: SafeArea(
         child: Stack(
@@ -253,14 +322,26 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
             ListView(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 100),
               children: [
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Espacios para correr',
-                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
+                // --- CABECERA Y BOTÓN DE FILTRO ---
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Espacios para correr',
+                      style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                            fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    IconButton(
+                      onPressed: _abrirModalFiltros,
+                      icon: Icon(
+                        Icons.filter_list,
+                        color: hayFiltrosActivos ? Theme.of(context).primaryColor : Colors.white70,
+                      ),
+                      tooltip: 'Filtrar espacios',
+                    ),
+                  ],
                 ),
+                // ----------------------------------
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -271,23 +352,51 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      lista.isEmpty ? 'Sin espacios' : '${lista.length} espacio(s)',
+                      listaFiltrada.isEmpty && !hayFiltrosActivos
+                          ? 'Sin espacios'
+                          : '${listaFiltrada.length} espacio(s) mostrados',
                       style: const TextStyle(color: Colors.grey),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                ...lista.map((e) => Padding(
-                  padding: const EdgeInsets.only(bottom: 20.0),
-                  child: _TarjetaEspacio(
-                    espacio: e,
-                    onAgregarNota: () => _abrirModalNotaNueva(e),
-                    onEliminarNota: (i) => _eliminarNota(e, i),
-                    onEditarNota: (i) => _abrirModalEditarNota(e, i),
-                    onCambiarSemaforo: (s) => _actualizarSemaforo(e, s),
-                    onVerMapa: () => _abrirEnMapa(e),
+                
+                if (hayFiltrosActivos)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: Text(
+                      'Filtros aplicados. Toque el icono de filtro para modificar.',
+                      style: TextStyle(color: Theme.of(context).primaryColor, fontSize: 12),
+                    ),
                   ),
-                )),
+
+                const SizedBox(height: 8),
+                
+                // --- LÓGICA DE MENSAJE O LISTA CORREGIDA ---
+                if (listaFiltrada.isEmpty && hayFiltrosActivos)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 40.0),
+                    child: Center(
+                      child: Text(
+                        'No se encontraron espacios que coincidan con los filtros aplicados.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white70, fontSize: 16),
+                      ),
+                    ),
+                  )
+                else if (listaFiltrada.isNotEmpty)
+                  ...listaFiltrada.map((e) => Padding(
+                    padding: const EdgeInsets.only(bottom: 20.0),
+                    child: _TarjetaEspacio(
+                      espacio: e,
+                      onAgregarNota: () => _abrirModalNotaNueva(e),
+                      onEliminarNota: (i) => _eliminarNota(e, i),
+                      onEditarNota: (i) => _abrirModalEditarNota(e, i),
+                      onCambiarSemaforo: (s) => _actualizarSemaforo(e, s),
+                      onVerMapa: () => _abrirEnMapa(e),
+                    ),
+                  )),
+                // --- FIN LÓGICA DE MENSAJE O LISTA ---
+                
               ],
             ),
             Positioned(
@@ -303,6 +412,169 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ============= Modal de Filtros (UI) =============
+class _HojaFiltros extends StatefulWidget {
+  final Set<SeguridadEspacio> initialSemaforo;
+  final _FiltroNotas initialNotas;
+
+  const _HojaFiltros({
+    required this.initialSemaforo,
+    required this.initialNotas,
+  });
+
+  @override
+  State<_HojaFiltros> createState() => _EstadoHojaFiltros();
+}
+
+class _EstadoHojaFiltros extends State<_HojaFiltros> {
+  late Set<SeguridadEspacio> _semaforoSeleccionado;
+  late _FiltroNotas _notasSeleccionado;
+
+  @override
+  void initState() {
+    super.initState();
+    _semaforoSeleccionado = Set.from(widget.initialSemaforo);
+    _notasSeleccionado = widget.initialNotas;
+  }
+
+  void _toggleSemaforo(SeguridadEspacio nivel) {
+    setState(() {
+      if (_semaforoSeleccionado.contains(nivel)) {
+        _semaforoSeleccionado.remove(nivel);
+      } else {
+        _semaforoSeleccionado.add(nivel);
+      }
+    });
+  }
+
+  void _aplicarFiltros() {
+    Navigator.of(context).pop((_semaforoSeleccionado, _notasSeleccionado));
+  }
+  
+  void _limpiarFiltros() {
+    setState(() {
+      _semaforoSeleccionado = {};
+      _notasSeleccionado = _FiltroNotas.todos;
+    });
+    _aplicarFiltros(); 
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    final Color cardColor = Theme.of(context).cardColor;
+    final Color primaryColor = Theme.of(context).primaryColor;
+    
+    final isConNotasSelected = _notasSeleccionado == _FiltroNotas.conNotas;
+    
+    return Container(
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: const BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Filtros de Espacios',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.grey),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
+          const Divider(color: Colors.white12),
+          const SizedBox(height: 10),
+
+          // --- Filtro por Nivel de Seguridad (Semáforo) ---
+          const Text('Nivel de Seguridad:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          Wrap(
+            spacing: 8.0,
+            children: SeguridadEspacio.values.map((nivel) {
+              if (nivel == SeguridadEspacio.ninguno) return const SizedBox.shrink(); 
+              
+              final isSelected = _semaforoSeleccionado.contains(nivel);
+              
+              String label = _SemaforoHelpers.etiqueta(nivel);
+              Color color = _SemaforoHelpers.color(nivel);
+
+              return FilterChip(
+                label: Text(label),
+                selected: isSelected,
+                onSelected: (_) => _toggleSemaforo(nivel),
+                backgroundColor: cardColor,
+                selectedColor: color.withOpacity(0.3),
+                labelStyle: TextStyle(color: isSelected ? color : Colors.white70),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(color: isSelected ? color : Colors.white12),
+                ),
+              );
+            }).toList(),
+          ),
+          
+          const SizedBox(height: 20),
+          
+          // --- Filtro por Notas Agregadas (Solo 'Con Notas') ---
+          const Text('Notas Agregadas:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          Wrap(
+            spacing: 8.0,
+            children: [
+              FilterChip(
+                label: const Text('Con Notas personales'),
+                selected: isConNotasSelected,
+                onSelected: (_) {
+                  setState(() {
+                    if (isConNotasSelected) {
+                      _notasSeleccionado = _FiltroNotas.todos;
+                    } else {
+                      _notasSeleccionado = _FiltroNotas.conNotas;
+                    }
+                  });
+                },
+                backgroundColor: cardColor,
+                selectedColor: primaryColor.withOpacity(0.3),
+                labelStyle: TextStyle(color: isConNotasSelected ? primaryColor : Colors.white70),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(color: isConNotasSelected ? primaryColor : Colors.white12),
+                ),
+              ),
+            ],
+          ),
+          
+          const SizedBox(height: 30),
+          
+          // Botones de Acción
+          Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  onPressed: _limpiarFiltros,
+                  child: const Text('Limpiar Filtros', style: TextStyle(color: Colors.grey)),
+                ),
+              ),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _aplicarFiltros,
+                  child: const Text('Aplicar Filtros'),
+                ),
+              ),
+            ],
+          ),
+
+          SizedBox(height: MediaQuery.of(context).padding.bottom + 10),
+        ],
       ),
     );
   }
@@ -483,6 +755,9 @@ class _TarjetaEspacio extends StatelessWidget {
     required this.onCambiarSemaforo,
     required this.onVerMapa,
   });
+  
+  static String semaforoEtiqueta(SeguridadEspacio s) => _SemaforoHelpers.etiqueta(s);
+  static Color semaforoColor(SeguridadEspacio s) => _SemaforoHelpers.color(s);
 
   @override
   Widget build(BuildContext context) {
@@ -565,23 +840,9 @@ class _ControlSemaforo extends StatelessWidget {
         SeguridadEspacio.ninguno => 1.0,
       };
 
-  String _etiqueta(SeguridadEspacio s) => switch (s) {
-        SeguridadEspacio.inseguro => 'Inseguro',
-        SeguridadEspacio.parcialmenteSeguro => 'Parcialmente Seguro',
-        SeguridadEspacio.seguro => 'Seguro',
-        SeguridadEspacio.ninguno => 'Sin calificar',
-      };
-
-  Color _color(SeguridadEspacio s) => switch (s) {
-        SeguridadEspacio.inseguro => Colors.redAccent,
-        SeguridadEspacio.parcialmenteSeguro => Colors.orangeAccent,
-        SeguridadEspacio.seguro => Colors.greenAccent,
-        SeguridadEspacio.ninguno => Colors.grey,
-      };
-
   @override
   Widget build(BuildContext context) {
-    final color = _color(semaforo);
+    final color = _SemaforoHelpers.color(semaforo);
     return Row(children: [
       Expanded(
         child: SliderTheme(
@@ -605,7 +866,7 @@ class _ControlSemaforo extends StatelessWidget {
         ),
       ),
       const SizedBox(width: 12),
-      Text(_etiqueta(semaforo), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14)),
+      Text(_SemaforoHelpers.etiqueta(semaforo), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14)),
     ]);
   }
 }
