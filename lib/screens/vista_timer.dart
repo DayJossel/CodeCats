@@ -1,13 +1,14 @@
 // lib/screens/vista_timer.dart
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'dart:ui'; 
+import 'dart:ui';
 import 'package:flutter/cupertino.dart'; // Para el selector de tiempo
 
 import '../main.dart'; // Importamos los colores principales (primaryColor, backgroundColor, cardColor, accentColor)
 
 // Definición de modos del temporizador
 enum TimerMode { selection, countdown, stopwatch }
+
 enum TimerState { initial, running, paused, finished }
 
 class VistaTimer extends StatefulWidget {
@@ -34,7 +35,7 @@ class _EstadoVistaTimer extends State<VistaTimer> {
   String _countdownDisplay = '00:05:00'; // Default para 5 minutos
 
   // Colores (para usarlos sin depender de Theme.of(context) en las utilidades)
-  final Color primaryColor = const Color(0xFFFFC700); 
+  final Color primaryColor = const Color(0xFFFFC700);
   final Color accentColor = const Color(0xFFFE526E); // SOS Color from main.dart
   final Color backgroundColor = const Color(0xFF121212); // Fondo oscuro
   final Color cardColor = const Color(0xFF1E1E1E); // Color de tarjetas
@@ -55,7 +56,9 @@ class _EstadoVistaTimer extends State<VistaTimer> {
 
   void _startStopwatch() {
     _stopwatch.start();
-    _progressiveTimer = Timer.periodic(const Duration(milliseconds: 10), (timer) {
+    _progressiveTimer = Timer.periodic(const Duration(milliseconds: 10), (
+      timer,
+    ) {
       if (_stopwatch.isRunning) {
         setState(() {
           _updateProgressiveTime();
@@ -89,11 +92,11 @@ class _EstadoVistaTimer extends State<VistaTimer> {
 
   // --- Lógica de Cuenta Regresiva (Temporizador) ---
 
-  // *** FUNCIÓN MODIFICADA ***: Eliminada la llamada a setState para el estado, 
+  // *** FUNCIÓN MODIFICADA ***: Eliminada la llamada a setState para el estado,
   // ya que se maneja en el llamador.
   void _startCountdown() {
-    if (_countdownTimer.isActive) _countdownTimer.cancel(); 
-    
+    if (_countdownTimer.isActive) _countdownTimer.cancel();
+
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_remainingDuration.inSeconds > 0) {
         setState(() {
@@ -179,19 +182,21 @@ class _EstadoVistaTimer extends State<VistaTimer> {
       if (_state == TimerState.running) {
         _pauseCountdown();
       } else if (_state == TimerState.initial || _state == TimerState.paused) {
-        setState(() => _state = TimerState.running); // Establecer estado a running
+        setState(
+          () => _state = TimerState.running,
+        ); // Establecer estado a running
         _startCountdown(); // Iniciar/Reanudar
       }
     }
   }
 
   // --- Métodos de Formato ---
-  
+
   String _formatMilliseconds(int ms) {
     final minutes = (ms ~/ 60000) % 60;
     final seconds = (ms ~/ 1000) % 60;
     final milliseconds = ms % 1000;
-    
+
     return '${_dosDigitos(minutes)}:${_dosDigitos(seconds)}:${_tresDigitos(milliseconds)}';
   }
 
@@ -199,7 +204,7 @@ class _EstadoVistaTimer extends State<VistaTimer> {
     final hours = d.inHours;
     final minutes = d.inMinutes.remainder(60);
     final seconds = d.inSeconds.remainder(60);
-    
+
     // Mostramos HH:MM:SS
     return '${_dosDigitos(hours)}:${_dosDigitos(minutes)}:${_dosDigitos(seconds)}';
   }
@@ -217,7 +222,11 @@ class _EstadoVistaTimer extends State<VistaTimer> {
         children: <Widget>[
           const Text(
             'Selecciona el Modo de Conteo',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 40),
@@ -238,7 +247,7 @@ class _EstadoVistaTimer extends State<VistaTimer> {
       ),
     );
   }
-  
+
   Widget _buildSetupScreen() {
     // ...
     // Obtener H:M:S de la duración actual
@@ -256,9 +265,12 @@ class _EstadoVistaTimer extends State<VistaTimer> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text('Configurar Duración', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          const Text(
+            'Configurar Duración',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 20),
-          
+
           Container(
             height: 200,
             decoration: BoxDecoration(
@@ -275,7 +287,10 @@ class _EstadoVistaTimer extends State<VistaTimer> {
                   maxValue: 23,
                   onChanged: (value) => tempHours = value,
                 ),
-                const Text(':', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+                const Text(
+                  ':',
+                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                ),
                 // Selector de Minutos
                 _TimePickerColumn(
                   label: 'MINUTOS',
@@ -283,7 +298,10 @@ class _EstadoVistaTimer extends State<VistaTimer> {
                   maxValue: 59,
                   onChanged: (value) => tempMinutes = value,
                 ),
-                const Text(':', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+                const Text(
+                  ':',
+                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
+                ),
                 // Selector de Segundos
                 _TimePickerColumn(
                   label: 'SEGUNDOS',
@@ -299,26 +317,38 @@ class _EstadoVistaTimer extends State<VistaTimer> {
           // *** BOTÓN CORREGIDO ***
           ElevatedButton(
             onPressed: () {
-              final newDuration = Duration(hours: tempHours, minutes: tempMinutes, seconds: tempSeconds);
+              final newDuration = Duration(
+                hours: tempHours,
+                minutes: tempMinutes,
+                seconds: tempSeconds,
+              );
               if (newDuration.inSeconds == 0) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La duración debe ser mayor a cero.'), backgroundColor: Colors.redAccent,));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('La duración debe ser mayor a cero.'),
+                    backgroundColor: Colors.redAccent,
+                  ),
+                );
                 return;
               }
               setState(() {
                 _initialDuration = newDuration;
                 _remainingDuration = newDuration;
                 _countdownDisplay = _formatDuration(newDuration);
-                _mode = TimerMode.countdown; 
+                _mode = TimerMode.countdown;
                 _state = TimerState.running; // FIX: Establecer estado a running
               });
-              
+
               _startCountdown(); // FIX: Iniciar el temporizador
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: primaryColor,
               padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
             ),
-            child: const Text('Comenzar Temporizador', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            child: const Text(
+              'Comenzar Temporizador',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
           ),
         ],
       ),
@@ -333,7 +363,7 @@ class _EstadoVistaTimer extends State<VistaTimer> {
     List<String> parts;
     String mainTime;
     String subTime = '';
-    
+
     if (isStopwatch) {
       // Formato MM:SS:MMM
       parts = timeDisplay.split(':');
@@ -346,15 +376,14 @@ class _EstadoVistaTimer extends State<VistaTimer> {
       subTime = parts.length > 2 ? ':${parts[2]}' : ':00'; // :SS
     }
 
-
     final display = Row(
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic, 
+      textBaseline: TextBaseline.alphabetic,
       children: [
         // HH:MM / MM:SS (Color principal)
         Text(
-          mainTime, 
+          mainTime,
           style: TextStyle(
             fontSize: 68,
             fontWeight: FontWeight.w100,
@@ -381,7 +410,11 @@ class _EstadoVistaTimer extends State<VistaTimer> {
         // Indicador de Modo
         Text(
           isStopwatch ? 'CRONÓMETRO' : 'TEMPORIZADOR',
-          style: const TextStyle(color: Colors.white70, letterSpacing: 1.5, fontSize: 14),
+          style: const TextStyle(
+            color: Colors.white70,
+            letterSpacing: 1.5,
+            fontSize: 14,
+          ),
         ),
         const SizedBox(height: 8),
 
@@ -411,18 +444,21 @@ class _EstadoVistaTimer extends State<VistaTimer> {
               backgroundColor: Colors.white.withOpacity(0.1),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-            child: const Text('Reiniciar', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            child: const Text(
+              'Reiniciar',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
           ),
-        
+
         // Espacio para mantener la consistencia del layout cuando el botón de Reiniciar está oculto
-        if (_state == TimerState.running)
-           const SizedBox(height: 44), 
+        if (_state == TimerState.running) const SizedBox(height: 44),
       ],
     );
   }
-
 
   // --- Widget Principal (Build) ---
 
@@ -431,29 +467,30 @@ class _EstadoVistaTimer extends State<VistaTimer> {
     // Definiciones del AppBar y FAB basadas en el modo
     Widget? currentBody;
     String title;
-    
+
     if (_mode == TimerMode.selection) {
       currentBody = _buildSelectionScreen();
-      title = 'Timer';
+      title = 'Medir el Tiempo';
     } else if (_mode == TimerMode.countdown && _state == TimerState.initial) {
       currentBody = _buildSetupScreen();
       title = 'Configurar Temporizador';
     } else {
       final isStopwatch = _mode == TimerMode.stopwatch;
       title = isStopwatch ? 'Cronómetro' : 'Temporizador';
-      
-      String displayTime = isStopwatch ? _progressiveDisplay : _countdownDisplay;
-      
+
+      String displayTime = isStopwatch
+          ? _progressiveDisplay
+          : _countdownDisplay;
+
       if (_state == TimerState.finished) {
-        displayTime = _formatDuration(Duration.zero); // Muestra 00:00:00 cuando termina
+        displayTime = _formatDuration(
+          Duration.zero,
+        ); // Muestra 00:00:00 cuando termina
       }
 
-      currentBody = _buildTimerDisplay(
-        displayTime,
-        isStopwatch: isStopwatch,
-      );
+      currentBody = _buildTimerDisplay(displayTime, isStopwatch: isStopwatch);
     }
-    
+
     // Icono del FAB
     IconData fabIcon;
     Color fabColor;
@@ -468,7 +505,10 @@ class _EstadoVistaTimer extends State<VistaTimer> {
     // Condición para mostrar FAB:
     // 1. Siempre en modo Cronómetro (progresivo), sin importar el estado.
     // 2. En modo Temporizador (regresivo), si el estado es running o paused.
-    bool showFab = _mode == TimerMode.stopwatch || (_mode == TimerMode.countdown && (_state == TimerState.running || _state == TimerState.paused));
+    bool showFab =
+        _mode == TimerMode.stopwatch ||
+        (_mode == TimerMode.countdown &&
+            (_state == TimerState.running || _state == TimerState.paused));
 
     return Scaffold(
       appBar: AppBar(
@@ -481,10 +521,10 @@ class _EstadoVistaTimer extends State<VistaTimer> {
                 onPressed: _goBackToSelection,
               )
             : null,
-        actions: const [], 
+        actions: const [],
       ),
       body: Center(child: currentBody),
-      
+
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: showFab
           ? FloatingActionButton.large(
@@ -533,7 +573,11 @@ class _SelectionButton extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               label,
-              style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.w500),
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+              ),
               textAlign: TextAlign.center,
             ),
           ],
