@@ -13,10 +13,10 @@ import 'screens/vista_calendario.dart';
 import 'screens/vista_timer.dart';
 
 // Colores principales de la aplicación
-const Color primaryColor = Color(0xFFFFC700); // Amarillo/Dorado
-const Color accentColor = Color(0xFFFE526E); // Rojo/Rosa SOS
-const Color backgroundColor = Color(0xFF121212); // Fondo oscuro
-const Color cardColor = Color(0xFF1E1E1E); // Color de tarjetas
+const Color primaryColor = Color(0xFFFFC700);     // Amarillo/Dorado
+const Color accentColor = Color(0xFFFE526E);      // Rojo/Rosa SOS
+const Color backgroundColor = Color(0xFF121212);  // Fondo oscuro
+const Color cardColor = Color(0xFF1E1E1E);        // Color de tarjetas
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,9 +40,7 @@ class AppChita extends StatelessWidget {
           style: ElevatedButton.styleFrom(
             foregroundColor: Colors.black,
             backgroundColor: primaryColor,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
         ),
@@ -54,10 +52,7 @@ class AppChita extends StatelessWidget {
           showUnselectedLabels: true,
         ),
         textTheme: const TextTheme(
-          headlineSmall: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
+          headlineSmall: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
           bodyLarge: TextStyle(color: Colors.white),
           bodyMedium: TextStyle(color: Colors.grey),
         ),
@@ -74,8 +69,7 @@ class PuertaAutenticacion extends StatefulWidget {
 }
 
 class _EstadoPuertaAutenticacion extends State<PuertaAutenticacion> {
-  Future<bool> _estaAutenticado() =>
-      AuthUC.tieneSesion(); // 🔹 usa UC en lugar de tocar SharedPrefs
+  Future<bool> _estaAutenticado() => AuthUC.tieneSesion(); // 🔹 usa UC en lugar de tocar SharedPrefs
 
   @override
   Widget build(BuildContext context) {
@@ -107,7 +101,7 @@ class _EstadoPantallaPrincipal extends State<PantallaPrincipal> {
     const VistaEspacios(),
     const VistaContactos(),
     const VistaCalendario(),
-    const VistaTimer(), // 🔹 Nuevo tab: Temporizador
+    const VistaTimer(),      // 🔹 Nuevo tab: Temporizador
     const ProfileScreen(),
   ];
 
@@ -128,22 +122,10 @@ class _EstadoPantallaPrincipal extends State<PantallaPrincipal> {
         items: const <BottomNavigationBarItem>[
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
           BottomNavigationBarItem(icon: Icon(Icons.route), label: 'Espacios'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.people_outline),
-            label: 'Contactos',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today_outlined),
-            label: 'Calendario',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.timer_outlined),
-            label: 'Tiempo',
-          ), // 🔹 Nuevo ítem
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            label: 'Perfil',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.people_outline), label: 'Contactos'),
+          BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Calendario'),
+          BottomNavigationBarItem(icon: Icon(Icons.timer_outlined), label: 'Timer'), // 🔹 Nuevo ítem
+          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
         ],
         currentIndex: _indiceSeleccionado,
         onTap: _alTocarItem,
