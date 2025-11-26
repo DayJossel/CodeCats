@@ -5,6 +5,7 @@ import 'package:chita_app/screens/map_detail.dart';
 import '../main.dart';
 import '../backend/dominio/espacios.dart';
 import '../backend/dominio/modelos/espacio.dart'; // Importa SeguridadEspacio y Espacio
+import '../backend/dominio/espacios_filtro.dart'; // FiltroEspaciosUC y FiltroNotasEspacio
 
 // --- mapping nombre -> asset (solo UI)
 String _assetParaTituloEspacio(String nombre) {
@@ -24,10 +25,7 @@ String _assetParaTituloEspacio(String nombre) {
   }
 }
 
-// Nuevo enum para el filtro de notas
-enum _FiltroNotas { todos, conNotas, sinNotas }
-
-// Clase auxiliar estática para las propiedades del semáforo
+// Clase auxiliar estática para las propiedades del semáforo (solo UI)
 class _SemaforoHelpers {
   static String etiqueta(SeguridadEspacio s) => switch (s) {
         SeguridadEspacio.inseguro => 'Inseguro',
@@ -54,9 +52,9 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
   final List<Espacio> _espacios = [];
   bool _cargando = false;
 
-  // --- ESTADOS DE FILTRO ---
+  // --- ESTADOS DE FILTRO (solo estado de UI, la lógica está en backend/dominio/espacios_filtro.dart) ---
   Set<SeguridadEspacio> _filtrosSemaforo = {};
-  _FiltroNotas _filtroNotas = _FiltroNotas.todos;
+  FiltroNotasEspacio _filtroNotas = FiltroNotasEspacio.todos;
   // --------------------------------
 
   @override
@@ -102,28 +100,6 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
       if (mounted) setState(() => _cargando = false);
     }
   }
-
-  // --- MÉTODO DE FILTRADO ---
-  List<Espacio> _aplicarFiltros(List<Espacio> listaOriginal) {
-    return listaOriginal.where((e) {
-      // 1. Filtro por Semáforo
-      bool pasaFiltroSemaforo = true;
-      if (_filtrosSemaforo.isNotEmpty) {
-        pasaFiltroSemaforo = _filtrosSemaforo.contains(e.semaforo);
-      }
-
-      // 2. Filtro por Notas
-      bool pasaFiltroNotas = true;
-      if (_filtroNotas == _FiltroNotas.conNotas) {
-        pasaFiltroNotas = e.notas.isNotEmpty;
-      } else if (_filtroNotas == _FiltroNotas.sinNotas) {
-        pasaFiltroNotas = e.notas.isEmpty;
-      }
-
-      return pasaFiltroSemaforo && pasaFiltroNotas;
-    }).toList();
-  }
-  // --------------------------------
 
   Future<void> _agregarEspacio(String nombre, String? enlace) async {
     try {
@@ -252,7 +228,7 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
   }
 
   void _abrirModalFiltros() async {
-    final resultado = await showModalBottomSheet<(Set<SeguridadEspacio>, _FiltroNotas)?>(
+    final resultado = await showModalBottomSheet<(Set<SeguridadEspacio>, FiltroNotasEspacio)?>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -321,9 +297,15 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
 
   @override
   Widget build(BuildContext context) {
-    final listaFiltrada = _aplicarFiltros(_espacios); // Usar la lista filtrada
+    // Aquí ya NO hay lógica de dominio de filtrado: delegamos al caso de uso FiltroEspaciosUC.
+    final listaFiltrada = FiltroEspaciosUC.aplicarFiltros(
+      espacios: _espacios,
+      filtrosSemaforo: _filtrosSemaforo,
+      filtroNotas: _filtroNotas,
+    );
+
     final hayFiltrosActivos =
-        _filtrosSemaforo.isNotEmpty || _filtroNotas != _FiltroNotas.todos;
+        _filtrosSemaforo.isNotEmpty || _filtroNotas != FiltroNotasEspacio.todos;
 
     return Scaffold(
       body: SafeArea(
@@ -393,7 +375,7 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
                   ),
                 const SizedBox(height: 8),
 
-                // --- LÓGICA DE MENSAJE O LISTA CORREGIDA ---
+                // --- LÓGICA DE MENSAJE O LISTA ---
                 if (listaFiltrada.isEmpty && hayFiltrosActivos)
                   Padding(
                     padding: const EdgeInsets.only(top: 40.0),
@@ -401,7 +383,7 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
                       child: Text(
                         'No se encontraron espacios que coincidan con los filtros aplicados.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(
+                        style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 16),
                       ),
@@ -447,7 +429,7 @@ class _EstadoVistaEspacios extends State<VistaEspacios> {
 // ============= Modal de Filtros (UI) =============
 class _HojaFiltros extends StatefulWidget {
   final Set<SeguridadEspacio> initialSemaforo;
-  final _FiltroNotas initialNotas;
+  final FiltroNotasEspacio initialNotas;
 
   const _HojaFiltros({
     required this.initialSemaforo,
@@ -460,7 +442,7 @@ class _HojaFiltros extends StatefulWidget {
 
 class _EstadoHojaFiltros extends State<_HojaFiltros> {
   late Set<SeguridadEspacio> _semaforoSeleccionado;
-  late _FiltroNotas _notasSeleccionado;
+  late FiltroNotasEspacio _notasSeleccionado;
 
   @override
   void initState() {
@@ -486,21 +468,21 @@ class _EstadoHojaFiltros extends State<_HojaFiltros> {
   void _limpiarFiltros() {
     setState(() {
       _semaforoSeleccionado = {};
-      _notasSeleccionado = _FiltroNotas.todos;
+      _notasSeleccionado = FiltroNotasEspacio.todos;
     });
     _aplicarFiltros();
   }
 
   @override
   Widget build(BuildContext context) {
-    final Color cardColor = Theme.of(context).cardColor;
+    final Color localCardColor = Theme.of(context).cardColor;
     final Color primaryColor = Theme.of(context).primaryColor;
 
-    final isConNotasSelected = _notasSeleccionado == _FiltroNotas.conNotas;
+    final isConNotasSelected = _notasSeleccionado == FiltroNotasEspacio.conNotas;
 
     return Container(
       decoration: BoxDecoration(
-        color: cardColor,
+        color: localCardColor,
         borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(20), topRight: Radius.circular(20)),
       ),
@@ -545,7 +527,7 @@ class _EstadoHojaFiltros extends State<_HojaFiltros> {
                 label: Text(label),
                 selected: isSelected,
                 onSelected: (_) => _toggleSemaforo(nivel),
-                backgroundColor: cardColor,
+                backgroundColor: localCardColor,
                 selectedColor: color.withOpacity(0.3),
                 labelStyle: TextStyle(
                     color: isSelected ? color : Colors.white70),
@@ -572,13 +554,13 @@ class _EstadoHojaFiltros extends State<_HojaFiltros> {
                 onSelected: (_) {
                   setState(() {
                     if (isConNotasSelected) {
-                      _notasSeleccionado = _FiltroNotas.todos;
+                      _notasSeleccionado = FiltroNotasEspacio.todos;
                     } else {
-                      _notasSeleccionado = _FiltroNotas.conNotas;
+                      _notasSeleccionado = FiltroNotasEspacio.conNotas;
                     }
                   });
                 },
-                backgroundColor: cardColor,
+                backgroundColor: localCardColor,
                 selectedColor: primaryColor.withOpacity(0.3),
                 labelStyle: TextStyle(
                     color: isConNotasSelected
@@ -678,7 +660,7 @@ class _EstadoHojaAgregarEspacio extends State<_HojaAgregarEspacio> {
             ),
           ),
           child: Padding(
-            // 👉 margen interno para que no quede pegado al borde
+            // margen interno para que no quede pegado al borde
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
             child: Form(
               key: _formKey,
