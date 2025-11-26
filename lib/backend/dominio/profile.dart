@@ -34,9 +34,61 @@ class ProfileUC {
     final cid = int.parse(headers['X-Corredor-Id']!);
     final resp = await http.get(_u('/corredores/$cid'), headers: headers);
     if (resp.statusCode == 200) {
-      return CorredorPerfil.fromApi(jsonDecode(resp.body) as Map<String, dynamic>);
+      return CorredorPerfil.fromApi(
+        jsonDecode(resp.body) as Map<String, dynamic>,
+      );
     }
     throw Exception('Error al cargar perfil (HTTP ${resp.statusCode}).');
+  }
+
+  /// Actualiza los datos del perfil del corredor.
+  ///
+  /// Se espera que el backend exponga algo como:
+  ///   PUT /corredores/{id}
+  /// con un body JSON:
+  ///   { "nombre": "...", "correo": "...", "telefono": "..." }
+  ///
+  /// Devuelve el perfil actualizado.
+  static Future<CorredorPerfil> actualizarPerfil({
+    required String nombre,
+    required String correo,
+    required String telefono,
+  }) async {
+    final headers = await _headersAuth();
+    final cid = int.parse(headers['X-Corredor-Id']!);
+
+    final body = jsonEncode({
+      'nombre': nombre,
+      'correo': correo,
+      'telefono': telefono,
+    });
+
+    final resp = await http.put(
+      _u('/corredores/$cid'),
+      headers: headers,
+      body: body,
+    );
+
+    if (resp.statusCode == 200) {
+      final data = jsonDecode(resp.body) as Map<String, dynamic>;
+      final perfil = CorredorPerfil.fromApi(data);
+
+      // Actualizar caché local de sesión con el nuevo nombre / correo.
+      final pwd = await RepositorioSesion.obtenerContrasenia();
+      if (pwd != null && pwd.isNotEmpty) {
+        await RepositorioSesion.guardarLogin(
+          corredorId: perfil.corredorId,
+          contrasenia: pwd,
+          nombre: perfil.nombre,
+          correo: perfil.correo,
+        );
+      }
+
+      return perfil;
+    }
+
+    // Aquí mapeamos el fallo de actualización (flujo 4E del CU-9)
+    throw Exception('Error al actualizar perfil (HTTP ${resp.statusCode}).');
   }
 
   static Future<void> eliminarCuenta() async {

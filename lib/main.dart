@@ -20,7 +20,7 @@ const Color cardColor = Color(0xFF1E1E1E);        // Color de tarjetas
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await AppBoot.inicializar(); // 🔹 movido fuera del UI
+  await AppBoot.inicializar();
   runApp(const AppChita());
 }
 
@@ -40,7 +40,9 @@ class AppChita extends StatelessWidget {
           style: ElevatedButton.styleFrom(
             foregroundColor: Colors.black,
             backgroundColor: primaryColor,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             padding: const EdgeInsets.symmetric(vertical: 14),
           ),
         ),
@@ -52,7 +54,10 @@ class AppChita extends StatelessWidget {
           showUnselectedLabels: true,
         ),
         textTheme: const TextTheme(
-          headlineSmall: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+          headlineSmall: TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
           bodyLarge: TextStyle(color: Colors.white),
           bodyMedium: TextStyle(color: Colors.grey),
         ),
@@ -64,12 +69,13 @@ class AppChita extends StatelessWidget {
 
 class PuertaAutenticacion extends StatefulWidget {
   const PuertaAutenticacion({super.key});
+
   @override
   State<PuertaAutenticacion> createState() => _EstadoPuertaAutenticacion();
 }
 
 class _EstadoPuertaAutenticacion extends State<PuertaAutenticacion> {
-  Future<bool> _estaAutenticado() => AuthUC.tieneSesion(); // 🔹 usa UC en lugar de tocar SharedPrefs
+  Future<bool> _estaAutenticado() => AuthUC.tieneSesion();
 
   @override
   Widget build(BuildContext context) {
@@ -78,10 +84,16 @@ class _EstadoPuertaAutenticacion extends State<PuertaAutenticacion> {
       builder: (context, snap) {
         if (!snap.hasData) {
           return const Scaffold(
-            body: Center(child: CircularProgressIndicator(color: primaryColor)),
+            body: Center(
+              child: CircularProgressIndicator(color: primaryColor),
+            ),
           );
         }
-        return snap.data! ? const PantallaPrincipal() : const AuthScreen();
+        // Si hay dato, decide a qué pantalla ir
+        final autenticado = snap.data ?? false;
+        return autenticado
+            ? const PantallaPrincipal()
+            : const AuthScreen();
       },
     );
   }
@@ -89,6 +101,7 @@ class _EstadoPuertaAutenticacion extends State<PuertaAutenticacion> {
 
 class PantallaPrincipal extends StatefulWidget {
   const PantallaPrincipal({super.key});
+
   @override
   State<PantallaPrincipal> createState() => _EstadoPantallaPrincipal();
 }
@@ -101,31 +114,46 @@ class _EstadoPantallaPrincipal extends State<PantallaPrincipal> {
     const VistaEspacios(),
     const VistaContactos(),
     const VistaCalendario(),
-    const VistaTimer(),      // 🔹 Nuevo tab: Temporizador
+    const VistaTimer(),
     const ProfileScreen(),
   ];
 
   void _alTocarItem(int indice) {
-    // Mantengo el mismo comportamiento especial para Perfil,
-    // ahora movido al índice 5.
-    if (indice == 5) {
-      return;
-    }
     setState(() => _indiceSeleccionado = indice);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(child: _opcionesWidgets.elementAt(_indiceSeleccionado)),
+      body: Center(
+        child: _opcionesWidgets.elementAt(_indiceSeleccionado),
+      ),
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
-          BottomNavigationBarItem(icon: Icon(Icons.route), label: 'Espacios'),
-          BottomNavigationBarItem(icon: Icon(Icons.people_outline), label: 'Contactos'),
-          BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Calendario'),
-          BottomNavigationBarItem(icon: Icon(Icons.timer_outlined), label: 'Timer'), // 🔹 Nuevo ítem
-          BottomNavigationBarItem(icon: Icon(Icons.person_outline), label: 'Perfil'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'Inicio',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.route),
+            label: 'Espacios',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.people_outline),
+            label: 'Contactos',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.calendar_today_outlined),
+            label: 'Calendario',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.timer_outlined),
+            label: 'Timer',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            label: 'Perfil',
+          ),
         ],
         currentIndex: _indiceSeleccionado,
         onTap: _alTocarItem,
